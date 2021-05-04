@@ -45,46 +45,54 @@ layered_effect { PROB : (a:Type) -> (wp:prob_wp a) -> Effect with
 //    PROB?.reflect (prob_return string "hello")
 
     
-assume val largest : (pr -> Tot Type0) -> Tot pr
-
-let lemmaxxx () : Lemma(forall post.
-largest (fun r -> (fun p -> p "hello") (fun x -> post x >=. r))
-=
-post "hello"
-)
-= admit()
+(* assume val largest : (pr -> Tot Type0) -> Tot pr
 
 let lift_pure_prob_wp (a:Type) (wp:pure_wp a) : prob_wp a = 
     // TODO
     (fun post -> largest (fun r -> wp (fun x -> post x >=. r)))
 //admit()
+*)
 
-
+(*
 let hellemma : 
 squash(forall (ppost: (_: string -> pr)) (x: string).
   (forall (post: (_: string -> Type0)).
      (forall (return_val: string). return_val == "hello" ==> post return_val) ==> post x) ==>
      ppost "hello" = ppost x)
 = admit()
+*)
 
 let compatible (#a) (wp:pure_wp a) (pwp:prob_wp a) = 
     forall ppost x.
        (forall post. wp post ==> post x) ==> pwp ppost = (* TODO <= *) ppost x
 
+(*
+unfold
+let compatible (#a:Type) (wp:pure_wp a) (pwp:prob_wp a) : Type0 = exists x.
+ (
+ (wp == (fun (p:pure_post a) -> (forall return_val. return_val == x ==> p return_val))) &
+ (pwp == (fun (p:prob_post a) -> p x)))
+*) 
+
 let lift_pure_prob (a:Type) (#pwp:prob_wp a) (wp:pure_wp a) (f: eqtype_as_type unit -> PURE a wp) : 
    Pure (prob a pwp) (requires compatible wp pwp) (fun x -> ensures True) =
- //  largest (fun r -> wp (fun x -> p x >=. r))
-  admit()
+//   FStar.Monotonic.Pure.wp_monotonic_pure ();
+   assume False;
+   point_distribution (f ())
+   
+//     admit()
 
 sub_effect PURE ~> PROB = lift_pure_prob
 
-(*
-assume val lem1: squash (
-       lift_pure_prob_wp string (fun p -> p "hello") == (fun p -> p "hello")
-)*)
+unfold
+let goal = (Probabilism.compatible (fun p ->
+             forall (return_val: Prims.string). return_val == "hello" ==> p return_val)
+         (fun p -> p "hello"))
 
+assume val goal_holds : squash(goal)
 
-// let test3 () : PROB string (fun p -> p "hello") = "hello"
+let test3 () : PROB string (fun p -> p "hello") =    "hello"
+
 
 // let test2 () : PROB string (fun post -> post "hello") = test ()
 

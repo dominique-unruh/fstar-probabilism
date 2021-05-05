@@ -55,10 +55,53 @@ layered_effect { PROB : (a:Type) -> (wp:prob_wp a) -> Effect with
   if_then_else = ite_prob
   }
 
+assume val smallest : #a:Type -> (a->Type) -> (a->pr) -> pr
+
+effect PTotal a (pre:prop) (post:a->prop) = PROB a (fun p -> smallest (fun x -> pre ==> post x) p)
+// effect PPartial a (pre:Type0) (post:a->Type0) = PROB a (fun p -> ? smallest (fun x -> pre ==> post x) p)
+
 unfold
 let compatible (#a) (wp:pure_wp a) (pwp:prob_wp a) = 
     forall ppost x.
        (forall post. wp post ==> post x) ==> pwp ppost <=. ppost x
+
+(*
+I think the problem with the definition is the following:
+
+In a call such as "f x" where x:t is pure and f:t->PROB u, this
+desugars roughly to "bind_prob (lift_pure_prob x) f" lift_pure_prob x
+has an implicit #pwp that needs to be instantiated, but bind_prob does
+not put any constraint on the wp returned by lift_pure_prob, so there
+is no information how to instantiate #pwp. Hence "f x" fails (in many
+cases).
+
+Ideas:
+
+* Is there some way how to guide the insertion of implicits?
+
+* Can we define a function "list_pure_prob_wp : pure_wp a -> prob_wp
+  a" so that we do not need #pwp. Problem: this needs a function
+  "largest (real -> Type)" that is probably not implementable and
+  whose axiomatized existence might be unsound (allows to solve the
+  halting problem or equality on functions). largest could be
+  constrained to require that the input is a Dedekind cut, but it is
+  still not obvious that largest would be sound then. (Also, this
+  approach might not even be possible for quantum WPs because
+  Hermitian operators form an antilattice.)
+
+* Can we add type hints in a PROB function to indicate the wp's? 
+
+* Can we tell F* to avoid using the lifting in cases where it cancels
+  out anyway? (E.g., "bind_prob (lift_pure_prob x) f" could just be "f
+  x".
+
+* We can define prob_wp as a union type "Prob_WP of (prob_post ->
+  prob_pre) | Pure_WP of pure_wp". Then translating from PURE to PROB
+  is trivial. All other monadic transformations need to be adapted to
+  deal with the case distinction. (In particular subcomp must handle
+  comparison between PURE and PROB (in one direction only).)
+
+*)
 
 let lift_pure_prob (a:Type) (#pwp:prob_wp a) (wp:pure_wp a) (f: eqtype_as_type unit -> PURE a wp) : 
    Pure (prob a pwp) (requires compatible wp pwp) (fun x -> ensures True) =
@@ -88,14 +131,19 @@ let test1 () : PROB bool (fun p -> (p true +. p false) /. two) = coin ()
 
 let test2 () : PROB bool (fun p -> zero) = coin ()
 
+let return (#a) (x:a) : PROB a (fun p -> p x) = 
+  PROB?.reflect (prob_return a x)
+
+let map_return (#a) (#b) (f:a->b) (x:a) : PROB b (fun p -> p (f x)) = 
+  PROB?.reflect (prob_return b (f x))
+
+// let test2' () : PROB bool (fun p -> zero) = let c = coin () in c
+
 let test3 x : PROB string (fun p -> p x) = x
 
 let test4 () : PROB string (fun post -> post "hello") = test3 "hello"
 
 let f (b:bool) : nat = if b then 0 else 1
-
-let return (#a) (x:a) : PROB a (fun p -> p x) = 
-  PROB?.reflect (prob_return a x)
 
 let test5 () : PROB nat (fun p -> (p 0 +. p 1) /. two) =
   let c : bool = coin() in
@@ -104,7 +152,7 @@ let test5 () : PROB nat (fun p -> (p 0 +. p 1) /. two) =
 // FAILS
 (* let test6 () : PROB nat (fun p -> (p 0 +. p 1) /. two) =
   let c : bool = coin() in
-  return (if c then 0 else 1) *)
+  map_return (fun c -> if c then 0 else 1) c *)
 
 // FAILS
 (* let test7 () : PROB nat (fun p -> (p 0 +. p 1) /. two) =
@@ -118,6 +166,13 @@ let prob_unit : prob_wp unit = fun p -> p ()
   let c : bool = coin() in
   (if c then return 0 else return 1) *)
 
+let test8 () : PROB bool (fun post -> (post true +. post false) /. two) =
+  (if coin () then coin() else coin())
+
+
+let test7 () : PROB nat (fun p -> (p 0 +. p 1) /. two) =
+  let c : bool = coin() in
+  (if true then return 0 else return 1)
 
 // let reified = reify (test2 ())
 

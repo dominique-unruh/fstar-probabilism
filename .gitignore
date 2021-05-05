@@ -1,2 +1,3 @@
 *~
-queries-*.smt2
+/queries-*.smt2
+/debug.log

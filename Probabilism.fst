@@ -1,12 +1,32 @@
+// -*- mode: fstar; -*-
+
 module Probabilism
 
 open FStar.Real
 open FStar.List.Tot
-  
-unfold let pr = p:real{p >=. zero}
+
+let mono a (wp:pure_wp a) (p q:pure_post a) (_:squash(forall (x:a). p x ==> q x)) : 
+    Lemma (wp p ==> wp q) = 
+	FStar.Monotonic.Pure.wp_monotonic_pure ()
+
+let contradiction () : Lemma(False) = 
+    let a = unit in
+    let wp : pure_wp a = (fun p -> ~ (p ())) in
+    let p x = False in let q x = True in
+    let u : squash(forall x. p x ==> q x) = () in
+    mono a wp p q u;
+    assert (wp p ==> wp q)
+
+let pr = p:(real->Type0){forall r s. r >=. s ==> p r ==> p s}
 let prob_post (a:Type) = a -> Tot pr
-unfold let prob_pre = pr
+let prob_pre = pr
 let prob_wp (a:Type) = prob_post a -> Tot prob_pre
+
+let pr_of_real (r:real) : pr = fun s -> s <=. r
+
+let zero_pr : pr = pr_of_real zero
+
+let one_pr : pr = pr_of_real one
 
 assume type distribution (a:Type) : Type
 
@@ -32,7 +52,9 @@ let cast a (x:a) = x
 
 // let blabla #a (w1 w2 : prob_wp a) : Type0 = (forall (p:prob_post a). (w2 p <=. w1 p))
 
-let prob_stronger #a (w1 w2:prob_wp a) = forall x. w1 x <=. w2 x
+let pr_leq (a b : pr) : Type0 = forall r. a r ==> b r
+
+let prob_stronger #a (w1 w2:prob_wp a) = forall x. w1 x `pr_leq` w2 x
 
 let prob_subcomp a (#w1 #w2 : prob_wp a) (f:prob a w1) : 
                  Pure (prob a w2) (requires w2 `prob_stronger` w1) (ensures (fun _ -> True)) =
@@ -63,7 +85,7 @@ effect PTotal a (pre:prop) (post:a->prop) = PROB a (fun p -> smallest (fun x -> 
 unfold
 let compatible (#a) (wp:pure_wp a) (pwp:prob_wp a) = 
     forall ppost x.
-       (forall post. wp post ==> post x) ==> pwp ppost <=. ppost x
+       (forall post. wp post ==> post x) ==> pwp ppost `pr_leq` ppost x
 
 (*
 I think the problem with the definition is the following:
@@ -101,12 +123,20 @@ Ideas:
   deal with the case distinction. (In particular subcomp must handle
   comparison between PURE and PROB (in one direction only).)
 
+* Model reals as dedekind cuts
+
+* Model prob_wp a := prob_post a -> Type0. Intuition: (prob_wp a p)
+  holds iff expectation of p is >= 1.
+
 *)
 
-let lift_pure_prob (a:Type) (#pwp:prob_wp a) (wp:pure_wp a) (f: eqtype_as_type unit -> PURE a wp) : 
-   Pure (prob a pwp) (requires compatible wp pwp) (fun x -> ensures True) =
-//   FStar.Monotonic.Pure.wp_monotonic_pure ();
-   assume False;
+let lift_pure_prob_wp (a:Type) (wp:pure_wp a) : prob_wp a =
+    assume False; // TODO
+    fun p r -> wp (fun x -> p x r)
+
+let lift_pure_prob (a:Type) (wp:pure_wp a) (f: eqtype_as_type unit -> PURE a wp) : 
+   prob a (lift_pure_prob_wp a wp) =
+   assume False; // TODO
    point_distribution (f ())
    
 sub_effect PURE ~> PROB = lift_pure_prob
@@ -115,22 +145,27 @@ let hint a : squash(forall (y x:a). (forall post. post y ==> post x) ==> (x == y
 
 let hint_string () = hint string
 
-let average (l:list pr{Cons? l}) : pr =
+(* let average (l:list pr{Cons? l}) : pr =
   assume False;
   (fold_left (fun pr x -> pr +. x) zero l) /. of_int (length l)
 
 let pick #a (l:list a{Cons? l}) : PROB a (fun post -> average (map post l)) =
-  PROB?.reflect (uniform_distribution l)
+  PROB?.reflect (uniform_distribution l) *)
 
-let coin () : PROB bool (fun post -> (post true +. post false) /. two) =
+let pr_plus (a b : pr) = fun t -> exists r s. a r /\ b s /\ t <=. r +. s
+
+let pr_divide (p:pr) (a:real{a >. zero}) = fun t -> p (a *. t)
+
+let coin () : PROB bool (fun post -> (post true `pr_plus` post false) `pr_divide` two) =
   PROB?.reflect (uniform_distribution [true;false])
 
 (**** TESTS *****)
 
-let test1 () : PROB bool (fun p -> (p true +. p false) /. two) = coin ()
+let test1 () : PROB bool (fun p -> (p true `pr_plus` p false) `pr_divide` two) = coin ()
 
-let test2 () : PROB bool (fun p -> zero) = coin ()
+let test2 () : PROB bool (fun p -> zero_pr) = coin ()
 
+(*
 let return (#a) (x:a) : PROB a (fun p -> p x) = 
   PROB?.reflect (prob_return a x)
 

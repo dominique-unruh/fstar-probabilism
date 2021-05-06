@@ -4,29 +4,12 @@ module Probabilism
 
 open FStar.Real
 open FStar.List.Tot
+open FStar.Tactics
 
-let mono a (wp:pure_wp a) (p q:pure_post a) (_:squash(forall (x:a). p x ==> q x)) : 
-    Lemma (wp p ==> wp q) = 
-	FStar.Monotonic.Pure.wp_monotonic_pure ()
-
-let contradiction () : Lemma(False) = 
-    let a = unit in
-    let wp : pure_wp a = (fun p -> ~ (p ())) in
-    let p x = False in let q x = True in
-    let u : squash(forall x. p x ==> q x) = () in
-    mono a wp p q u;
-    assert (wp p ==> wp q)
-
-let pr = p:(real->Type0){forall r s. r >=. s ==> p r ==> p s}
-let prob_post (a:Type) = a -> Tot pr
+let pr = r:real{r >=. zero}
 let prob_pre = pr
-let prob_wp (a:Type) = prob_post a -> Tot prob_pre
-
-let pr_of_real (r:real) : pr = fun s -> s <=. r
-
-let zero_pr : pr = pr_of_real zero
-
-let one_pr : pr = pr_of_real one
+let prob_post (a:Type) = a -> Tot pr
+let prob_wp (a:Type) = prob_pre -> prob_post a -> Type0
 
 assume type distribution (a:Type) : Type
 
@@ -37,12 +20,14 @@ assume val uniform_distribution (#a:Type) (x:list a{Cons? x}) : distribution a
 let prob (a:Type) (w:prob_wp a): Tot Type0 =
   distribution a // TODO: require w to hold
 
-let prob_wreturn a x : prob_wp a = fun(p:prob_post a) -> p x
+let prob_wreturn a x : prob_wp a = fun (pre:prob_pre) (post:prob_post a) -> pre <=. post x
 
 let prob_return a (x:a) : prob a (prob_wreturn a x) = 
   point_distribution x
 
-let prob_wbind a b (w1:prob_wp a) (w2:a -> prob_wp b) : prob_wp b = fun p -> w1 (fun x -> w2 x p)
+let prob_wbind a b (w1:prob_wp a) (w2:a -> prob_wp b) : prob_wp b = 
+    fun (pre:prob_pre) (post:prob_post b) ->
+    exists (mid:prob_post a). w1 pre mid /\ (forall (x:a). w2 x (mid x) post)
 
 let prob_bind a b (w1:prob_wp a) (w2:a -> prob_wp b)
       (f: prob a w1) (g: (x:a -> prob b (w2 x))) : prob b (prob_wbind a b w1 w2) =
@@ -52,12 +37,10 @@ let cast a (x:a) = x
 
 // let blabla #a (w1 w2 : prob_wp a) : Type0 = (forall (p:prob_post a). (w2 p <=. w1 p))
 
-let pr_leq (a b : pr) : Type0 = forall r. a r ==> b r
-
-let prob_stronger #a (w1 w2:prob_wp a) = forall x. w1 x `pr_leq` w2 x
+let prob_stronger #a (w1 w2:prob_wp a) = forall post pre. w2 post pre ==> w1 post pre
 
 let prob_subcomp a (#w1 #w2 : prob_wp a) (f:prob a w1) : 
-                 Pure (prob a w2) (requires w2 `prob_stronger` w1) (ensures (fun _ -> True)) =
+                 Pure (prob a w2) (requires w1 `prob_stronger` w2) (ensures (fun _ -> True)) =
   f
 
 //let stronger_refl #a (w:prob_wp a): Lemma(w `prob_stronger` w) = ()
@@ -79,13 +62,9 @@ layered_effect { PROB : (a:Type) -> (wp:prob_wp a) -> Effect with
 
 assume val smallest : #a:Type -> (a->Type) -> (a->pr) -> pr
 
-effect PTotal a (pre:prop) (post:a->prop) = PROB a (fun p -> smallest (fun x -> pre ==> post x) p)
+// effect PTotal a (pre:prop) (post:a->prop) = PROB a (fun p -> smallest (fun x -> pre ==> post x) p)
 // effect PPartial a (pre:Type0) (post:a->Type0) = PROB a (fun p -> ? smallest (fun x -> pre ==> post x) p)
 
-unfold
-let compatible (#a) (wp:pure_wp a) (pwp:prob_wp a) = 
-    forall ppost x.
-       (forall post. wp post ==> post x) ==> pwp ppost `pr_leq` ppost x
 
 (*
 I think the problem with the definition is the following:
@@ -128,11 +107,12 @@ Ideas:
 * Model prob_wp a := prob_post a -> Type0. Intuition: (prob_wp a p)
   holds iff expectation of p is >= 1.
 
+* Model prob_wp a := relation between pre/post-condition
+
 *)
 
 let lift_pure_prob_wp (a:Type) (wp:pure_wp a) : prob_wp a =
-    assume False; // TODO
-    fun p r -> wp (fun x -> p x r)
+    fun pre post -> wp (fun x -> pre <=. post x)
 
 let lift_pure_prob (a:Type) (wp:pure_wp a) (f: eqtype_as_type unit -> PURE a wp) : 
    prob a (lift_pure_prob_wp a wp) =
@@ -152,37 +132,77 @@ let hint_string () = hint string
 let pick #a (l:list a{Cons? l}) : PROB a (fun post -> average (map post l)) =
   PROB?.reflect (uniform_distribution l) *)
 
-let pr_plus (a b : pr) = fun t -> exists r s. a r /\ b s /\ t <=. r +. s
-
-let pr_divide (p:pr) (a:real{a >. zero}) = fun t -> p (a *. t)
-
-let coin () : PROB bool (fun post -> (post true `pr_plus` post false) `pr_divide` two) =
+let coin () : PROB bool (fun pre post -> pre <=. (post true +. post false) /. two) =
   PROB?.reflect (uniform_distribution [true;false])
 
 (**** TESTS *****)
 
-let test1 () : PROB bool (fun p -> (p true `pr_plus` p false) `pr_divide` two) = coin ()
+let test1 () : PROB bool (fun pre post -> pre <=. (post true +. post false) /. two) = coin ()
 
-let test2 () : PROB bool (fun p -> zero_pr) = coin ()
+let test2 () : PROB bool (fun pre post -> False) = coin ()
 
-(*
-let return (#a) (x:a) : PROB a (fun p -> p x) = 
+let return (#a) (x:a) : PROB a (prob_wreturn a x) = 
   PROB?.reflect (prob_return a x)
 
-let map_return (#a) (#b) (f:a->b) (x:a) : PROB b (fun p -> p (f x)) = 
+let map_return (#a) (#b) (f:a->b) (x:a) : PROB b (prob_wreturn b (f x)) = 
   PROB?.reflect (prob_return b (f x))
 
 // let test2' () : PROB bool (fun p -> zero) = let c = coin () in c
 
-let test3 x : PROB string (fun p -> p x) = x
+let test3 x : PROB string (prob_wreturn _ x) = x
 
-let test4 () : PROB string (fun post -> post "hello") = test3 "hello"
+let test4 () : PROB string (prob_wreturn _ "hello") = test3 "hello"
 
 let f (b:bool) : nat = if b then 0 else 1
 
-let test5 () : PROB nat (fun p -> (p 0 +. p 1) /. two) =
+let goal = (Probabilism.prob_stronger (Probabilism.prob_wbind Prims.bool
+             Prims.nat
+             (fun pre post -> pre <=. (post true +. post false) /. FStar.Real.two)
+             (fun c -> Probabilism.prob_wreturn Prims.nat (Probabilism.f c)))
+         (fun pre post -> pre <=. (post 0 +. post 1) /. FStar.Real.two))
+
+let void #a (x:a) = ()
+
+(*let xx = assert_by_tactic (exists n. n=1) (fun () ->
+    witness (`2);
+    dump "Test";
+    admit_all()
+)*)
+
+let admit_nt a (n:string) : a = admit ()
+
+let tmp () : Lemma(forall (_: Prims.unit). (forall (pre: Probabilism.prob_pre) (post: Probabilism.prob_post Prims.nat).
+       (*could not prove post-condition*) FStar.Real.two <> 0.0R) /\
+   Prims.auto_squash (Probabilism.prob_stronger (Probabilism.prob_wbind Prims.bool
+             Prims.nat
+             (fun pre post -> pre <=. (post true +. post false) /. FStar.Real.two)
+             (fun c -> Probabilism.prob_wreturn Prims.nat (Probabilism.f c)))
+         (fun pre post -> pre <=. (post 0 +. post 1) /. FStar.Real.two))) = 
+    assert_by_tactic
+    ((forall (pre: Probabilism.prob_pre) (post: Probabilism.prob_post Prims.nat).
+       (*could not prove post-condition*) FStar.Real.two <> 0.0R) /\
+   Prims.auto_squash (Probabilism.prob_stronger (Probabilism.prob_wbind Prims.bool
+             Prims.nat
+             (fun pre post -> pre <=. (post true +. post false) /. FStar.Real.two)
+             (fun c -> Probabilism.prob_wreturn Prims.nat (Probabilism.f c)))
+         (fun pre post -> pre <=. (post 0 +. post 1) /. FStar.Real.two)))
+     (fun () -> 
+     split();
+     smt();
+     squash_intro();
+     let post = forall_intro_as("post") in
+     let pre = forall_intro_as("pre") in
+     let _ = implies_intro() in
+     witness (`(fun x -> (`#pre) (f x)));
+     dump "x")
+
+
+
+let test5 () : PROB nat (fun pre post -> pre <=. (post 0 +. post 1) /. two) =
   let c : bool = coin() in
-  return (f c)
+  f c
+
+(*
 
 // FAILS
 (* let test6 () : PROB nat (fun p -> (p 0 +. p 1) /. two) =

@@ -6,6 +6,16 @@ open FStar.Real
 open FStar.List.Tot
 open FStar.Tactics
 
+
+(* let tmp () : Lemma(exists (f:prop -> bool). f True = true /\ f False = false) =
+assert(~ (True == False));
+  assert_by_tactic(exists (f:bool -> bool). f true = true /\ f false = false)
+(fun _ ->
+smt();
+dump "tmp";
+admit_all());
+admit() *)
+
 let pr = r:real{r >=. zero}
 let prob_pre = pr
 let prob_post (a:Type) = a -> Tot pr
@@ -196,9 +206,39 @@ let tmp () : Lemma(forall (_: Prims.unit). (forall (pre: Probabilism.prob_pre) (
      witness (`(fun x -> (`#pre) (f x)));
      dump "x")
 
+let bind_return a b wp1 wp2 f : Lemma(prob_wbind a b wp1 (fun x -> prob_wreturn b (f x)) == (fun pre post -> wp1 pre (fun x -> post (f x)))) =
+assert_by_tactic 
+(prob_wbind a b wp1 (fun x -> prob_wreturn b (f x)) == (fun pre post -> wp1 pre (fun x -> post (f x))))
+(fun () ->
+//let p = forall_intro_as("p") in
+//let result = forall_intro_as("result") in
+  dump "bind_return";
+  admit_all()
+);
+()
 
 
-let test5 () : PROB nat (fun pre post -> pre <=. (post 0 +. post 1) /. two) =
+
+
+let test5 () : PROB nat (fun pre post -> pre <=. (post 0 +. post 1) /. two) by (
+  split();
+  smt();
+  split();
+  unfold_def (`pure_null_wp);
+//  norm [nbe];
+  smt();
+
+  dump "vc0";
+     
+     squash_intro();
+     let post = forall_intro_as("post") in
+     let pre = forall_intro_as("pre") in
+     let _ = implies_intro() in
+     witness (`(fun x -> (`#pre) (f x)));
+
+//  let x = forall_intro () in
+  dump "vc"
+) =
   let c : bool = coin() in
   f c
 

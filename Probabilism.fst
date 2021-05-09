@@ -5,7 +5,7 @@ module Probabilism
 open FStar.Real
 open FStar.List.Tot
 open FStar.Tactics
-
+open FStar.FunctionalExtensionality
 
 (* let tmp () : Lemma(exists (f:prop -> bool). f True = true /\ f False = false) =
 assert(~ (True == False));
@@ -19,7 +19,7 @@ admit() *)
 let pr = r:real{r >=. zero}
 let prob_pre = pr
 let prob_post (a:Type) = a -> Tot pr
-let prob_wp (a:Type) = prob_pre -> prob_post a -> Type0
+let prob_wp (a:Type) = prob_pre ^-> prob_post a ^-> prop
 
 assume type distribution (a:Type) : Type
 
@@ -27,33 +27,50 @@ assume val point_distribution (#a:Type) (x:a) : distribution a
 
 assume val uniform_distribution (#a:Type) (x:list a{Cons? x}) : distribution a
 
-let prob (a:Type) (w:prob_wp a): Tot Type0 =
+let prob_wp_eqI #a (wp1 wp2: prob_wp a) :
+    Lemma (requires (forall pre post. wp1 pre post == wp2 pre post))
+          (ensures (wp1 == wp2)) = 
+    assert (forall pre. feq (wp1 pre) (wp2 pre));
+    assert (feq wp1 wp2);
+    assert (wp1 == wp2)
+
+let prob a (w:prob_wp a): Tot Type0 =
   distribution a // TODO: require w to hold
 
-let prob_wreturn a x : prob_wp a = fun (pre:prob_pre) (post:prob_post a) -> pre <=. post x
+let b2p (b: bool) : prop = b == true
+let t2p (t: Type0) : prop = t
 
-let prob_return a (x:a) : prob a (prob_wreturn a x) = 
+let prob_wreturn #a x : prob_wp a = 
+    on _ (fun (pre:prob_pre) -> on _ (fun (post:prob_post a) -> b2p (pre <=. post x)))
+
+let prob_return a (x:a) : prob a (prob_wreturn x) = 
   point_distribution x
 
-let prob_wbind a b (w1:prob_wp a) (w2:a -> prob_wp b) : prob_wp b = 
-    fun (pre:prob_pre) (post:prob_post b) ->
-    exists (mid:prob_post a). w1 pre mid /\ (forall (x:a). w2 x (mid x) post)
+let prob_wbind #a #b (w1:prob_wp a) (w2:a -> prob_wp b) : prob_wp b = 
+    on _ (fun (pre:prob_pre) -> on _ (fun (post:prob_post b) ->
+      exists (mid:prob_post a). w1 pre mid /\ (forall (x:a). w2 x (mid x) post)))
 
 let prob_bind a b (w1:prob_wp a) (w2:a -> prob_wp b)
-      (f: prob a w1) (g: (x:a -> prob b (w2 x))) : prob b (prob_wbind a b w1 w2) =
+      (f: prob a w1) (g: (x:a -> prob b (w2 x))) : prob b (prob_wbind w1 w2) =
    admit()   
 
-let cast a (x:a) = x
+let stronger #a (w1 w2:prob_wp a) = forall post pre. w2 post pre ==> w1 post pre
 
-// let blabla #a (w1 w2 : prob_wp a) : Type0 = (forall (p:prob_post a). (w2 p <=. w1 p))
+let prob_wp_stronger_eq #a (w1 w2:prob_wp a) :
+    Lemma (requires w1 `stronger` w2 /\ w2 `stronger` w1)
+    	  (ensures w1 == w2) = 
+    assert (w1 == w2) by (
+apply_lemma (`prob_wp_eqI);
+let pre = forall_intro_as "pre" in
+let post = forall_intro_as "post" in
+let _ = pose_lemma (`FStar.PropositionalExtensionality.axiom) in
+dump "";
+admit_all()
+)
 
-let prob_stronger #a (w1 w2:prob_wp a) = forall post pre. w2 post pre ==> w1 post pre
-
-let prob_subcomp a (#w1 #w2 : prob_wp a) (f:prob a w1) : 
+let prob_subcomp a (w1 w2 : prob_wp a) (f:prob a w1) : 
                  Pure (prob a w2) (requires w1 `prob_stronger` w2) (ensures (fun _ -> True)) =
   f
-
-//let stronger_refl #a (w:prob_wp a): Lemma(w `prob_stronger` w) = ()
 
 let ite_prob a (#w1 #w2 : prob_wp a) (f: prob a w1) (g: prob a w2) (b: bool) : Type =
   prob a (if b then w1 else w2)
@@ -70,7 +87,7 @@ layered_effect { PROB : (a:Type) -> (wp:prob_wp a) -> Effect with
   if_then_else = ite_prob
   }
 
-assume val smallest : #a:Type -> (a->Type) -> (a->pr) -> pr
+// assume val smallest : #a:Type -> (a->Type) -> (a->pr) -> pr
 
 // effect PTotal a (pre:prop) (post:a->prop) = PROB a (fun p -> smallest (fun x -> pre ==> post x) p)
 // effect PPartial a (pre:Type0) (post:a->Type0) = PROB a (fun p -> ? smallest (fun x -> pre ==> post x) p)
@@ -121,19 +138,19 @@ Ideas:
 
 *)
 
-let lift_pure_prob_wp (a:Type) (wp:pure_wp a) : prob_wp a =
+let lift_pure_prob_wp #a (wp:pure_wp a) : prob_wp a =
     fun pre post -> wp (fun x -> pre <=. post x)
 
-let lift_pure_prob (a:Type) (wp:pure_wp a) (f: eqtype_as_type unit -> PURE a wp) : 
-   prob a (lift_pure_prob_wp a wp) =
+let lift_pure_prob a (wp:pure_wp a) (f: eqtype_as_type unit -> PURE a wp) : 
+   prob a (lift_pure_prob_wp wp) =
    assume False; // TODO
    point_distribution (f ())
    
 sub_effect PURE ~> PROB = lift_pure_prob
 
-let hint a : squash(forall (y x:a). (forall post. post y ==> post x) ==> (x == y)) = admit()
+// let hint a : squash(forall (y x:a). (forall post. post y ==> post x) ==> (x == y)) = admit()
 
-let hint_string () = hint string
+// let hint_string () = hint string
 
 (* let average (l:list pr{Cons? l}) : pr =
   assume False;
@@ -142,36 +159,38 @@ let hint_string () = hint string
 let pick #a (l:list a{Cons? l}) : PROB a (fun post -> average (map post l)) =
   PROB?.reflect (uniform_distribution l) *)
 
-let coin () : PROB bool (fun pre post -> pre <=. (post true +. post false) /. two) =
+let simple_wp #a (wp: prob_post a -> pr) : prob_wp a = fun pre post -> pre <=. wp post
+
+let coin () : PROB bool (simple_wp (fun post -> (post true +. post false) /. two)) =
   PROB?.reflect (uniform_distribution [true;false])
 
 (**** TESTS *****)
 
-let test1 () : PROB bool (fun pre post -> pre <=. (post true +. post false) /. two) = coin ()
+let test1 () : PROB bool (simple_wp (fun post -> (post true +. post false) /. two)) = coin ()
 
 let test2 () : PROB bool (fun pre post -> False) = coin ()
 
-let return (#a) (x:a) : PROB a (prob_wreturn a x) = 
-  PROB?.reflect (prob_return a x)
+(* let return (#a) (x:a) : PROB a (prob_wreturn x) = 
+  PROB?.reflect (prob_return a x) *)
 
-let map_return (#a) (#b) (f:a->b) (x:a) : PROB b (prob_wreturn b (f x)) = 
-  PROB?.reflect (prob_return b (f x))
+(* let map_return (#a) (#b) (f:a->b) (x:a) : PROB b (prob_wreturn b (f x)) = 
+  PROB?.reflect (prob_return b (f x)) *)
 
 // let test2' () : PROB bool (fun p -> zero) = let c = coin () in c
 
-let test3 x : PROB string (prob_wreturn _ x) = x
+let test3 x : PROB string (prob_wreturn x) = x
 
-let test4 () : PROB string (prob_wreturn _ "hello") = test3 "hello"
+let test4 () : PROB string (prob_wreturn "hello") = test3 "hello"
 
 let f (b:bool) : nat = if b then 0 else 1
 
-let goal = (Probabilism.prob_stronger (Probabilism.prob_wbind Prims.bool
-             Prims.nat
+let goal = (Probabilism.prob_stronger (Probabilism.prob_wbind #Prims.bool
+             #Prims.nat
              (fun pre post -> pre <=. (post true +. post false) /. FStar.Real.two)
-             (fun c -> Probabilism.prob_wreturn Prims.nat (Probabilism.f c)))
+             (fun c -> Probabilism.prob_wreturn #Prims.nat (Probabilism.f c)))
          (fun pre post -> pre <=. (post 0 +. post 1) /. FStar.Real.two))
 
-let void #a (x:a) = ()
+// let void #a (x:a) = ()
 
 (*let xx = assert_by_tactic (exists n. n=1) (fun () ->
     witness (`2);
@@ -179,64 +198,42 @@ let void #a (x:a) = ()
     admit_all()
 )*)
 
-let admit_nt a (n:string) : a = admit ()
+irreducible
+let bind_return #a #b (wp1:prob_wp a) (f:a->b) : Lemma(prob_wbind wp1 (fun x -> prob_wreturn (f x)) 
+                                  == (fun pre post -> wp1 pre (fun x -> post (f x)))) =
+  admit()				     
 
-let tmp () : Lemma(forall (_: Prims.unit). (forall (pre: Probabilism.prob_pre) (post: Probabilism.prob_post Prims.nat).
-       (*could not prove post-condition*) FStar.Real.two <> 0.0R) /\
-   Prims.auto_squash (Probabilism.prob_stronger (Probabilism.prob_wbind Prims.bool
-             Prims.nat
-             (fun pre post -> pre <=. (post true +. post false) /. FStar.Real.two)
-             (fun c -> Probabilism.prob_wreturn Prims.nat (Probabilism.f c)))
-         (fun pre post -> pre <=. (post 0 +. post 1) /. FStar.Real.two))) = 
-    assert_by_tactic
-    ((forall (pre: Probabilism.prob_pre) (post: Probabilism.prob_post Prims.nat).
-       (*could not prove post-condition*) FStar.Real.two <> 0.0R) /\
-   Prims.auto_squash (Probabilism.prob_stronger (Probabilism.prob_wbind Prims.bool
-             Prims.nat
-             (fun pre post -> pre <=. (post true +. post false) /. FStar.Real.two)
-             (fun c -> Probabilism.prob_wreturn Prims.nat (Probabilism.f c)))
-         (fun pre post -> pre <=. (post 0 +. post 1) /. FStar.Real.two)))
-     (fun () -> 
-     split();
-     smt();
-     squash_intro();
-     let post = forall_intro_as("post") in
-     let pre = forall_intro_as("pre") in
-     let _ = implies_intro() in
-     witness (`(fun x -> (`#pre) (f x)));
-     dump "x")
+irreducible
+let return_bind #a #b (x:a) (wp2:a -> prob_wp b) : Lemma(prob_wbind (prob_wreturn x) wp2 == wp2 x) =
+  admit()
 
-let bind_return a b wp1 wp2 f : Lemma(prob_wbind a b wp1 (fun x -> prob_wreturn b (f x)) == (fun pre post -> wp1 pre (fun x -> post (f x)))) =
-assert_by_tactic 
-(prob_wbind a b wp1 (fun x -> prob_wreturn b (f x)) == (fun pre post -> wp1 pre (fun x -> post (f x))))
-(fun () ->
-//let p = forall_intro_as("p") in
-//let result = forall_intro_as("result") in
-  dump "bind_return";
-  admit_all()
+irreducible
+let bind_simple_return #a #b wp1 f : Lemma(prob_wbind (simple_wp wp1) (fun x -> prob_wreturn (f x)) 
+                                  == simple_wp (fun post -> wp1 (fun x -> post (f x)))) =
+
+    assert (prob_wbind (simple_wp wp1) (fun x -> prob_wreturn (f x)) 
+        == simple_wp (fun post -> wp1 (fun x -> post (f x))))
+	by (
+	dump "x";
+	apply_lemma(`xxx);
+	admit_all()
 );
+
 ()
 
+(*  
+  bind_return (simple_wp wp1) f;
+  assert (forall pre post. prob_wbind (simple_wp wp1) (fun x -> prob_wreturn (f x)) pre post
+       == simple_wp (fun post -> wp1 (fun x -> post (f x))) pre post);
+  admit();
+  ()				     
 
+(* let simple_wp #a (wp: prob_post a -> pr) : prob_wp a = fun pre post -> pre <=. wp post
+ *)
 
-
-let test5 () : PROB nat (fun pre post -> pre <=. (post 0 +. post 1) /. two) by (
-  split();
-  smt();
-  split();
-  unfold_def (`pure_null_wp);
-//  norm [nbe];
-  smt();
-
-  dump "vc0";
-     
-     squash_intro();
-     let post = forall_intro_as("post") in
-     let pre = forall_intro_as("pre") in
-     let _ = implies_intro() in
-     witness (`(fun x -> (`#pre) (f x)));
-
-//  let x = forall_intro () in
+let test5 () : PROB nat (simple_wp (fun post -> (post 0 +. post 1) /. two)) by (
+unfold_def (`pure_null_wp);
+norm[];
   dump "vc"
 ) =
   let c : bool = coin() in

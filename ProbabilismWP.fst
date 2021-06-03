@@ -5,13 +5,13 @@ module ProbabilismWP
 open FStar.Real
 open FStar.Tactics
 open FStar.Tactics.Builtins
-open FStar.IndefiniteDescription
-open FStar.FunctionalExtensionality
+// open FStar.IndefiniteDescription
+// open FStar.FunctionalExtensionality
 
 let pr = r:real{r >=. zero}
 let prob_post (a:Type) = a -> Tot pr
 // TODO: add monotonicity
-let prob_wp (a:Type) = prob_post a ^-> pr
+let prob_wp (a:Type) = prob_post a -> pr
 
 assume type distribution (a:Type) : Type
 
@@ -21,21 +21,18 @@ assume val uniform_distribution (#a:Type) (x:list a{Cons? x}) : distribution a
 
 let prob_wp_eqI #a (wp1 wp2: prob_wp a) :
     Lemma (requires (forall post. wp1 post = wp2 post))
-          (ensures (wp1 == wp2)) =
-    assert (feq wp1 wp2);
-    assert (wp1 == wp2)
+          (ensures (wp1 == wp2)) = admit()
 
 let prob a (w:prob_wp a): Tot Type0 =
   distribution a // TODO: require w to hold
 
-let prob_wreturn #a x : prob_wp a =
-  on _ (fun post -> post x)
+let prob_wreturn #a x : prob_wp a = (fun post -> post x)
 
 let prob_return a (x:a) : prob a (prob_wreturn x) = 
   point_distribution x
 
 let prob_wbind #a #b (w1:prob_wp a) (w2:a -> prob_wp b) : prob_wp b = 
-  on _ (fun post -> w1 (fun x -> w2 x post))
+  fun post -> w1 (fun x -> w2 x post)
 
 let prob_wbind_beta #a #b (w1:prob_wp a) (w2:a -> prob_wp b) (post:prob_post b) :
   Lemma (prob_wbind w1 w2 post == w1 (fun x -> w2 x post)) = ()
@@ -65,6 +62,7 @@ let ite_prob a (#w1 #w2 : prob_wp a) (f: prob a w1) (g: prob a w2) (b: bool) : T
 
 total
 reflectable
+//reifiable
 layered_effect { PROB : (a:Type) -> (wp:prob_wp a) -> Effect with 
   repr = prob;
   return = prob_return; 
@@ -81,8 +79,10 @@ assume val real_numbers_complete: unit -> Lemma(
 // TODO: add requires, ensures, define
 assume val largest (p: pr -> Type0) : pr
 
+assume val inf (#a:Type) (p: a -> pr) : pr
+
 let lift_pure_prob_wp #a (wp:pure_wp a) : prob_wp a =
-    on _ (fun (post:prob_post a) -> largest (fun (p:pr) -> wp (fun x -> p <=. post x)))
+    (fun (post:prob_post a) -> largest (fun (p:pr) -> wp (fun x -> p <=. post x)))
 
 let lift_pure_prob a (wp:pure_wp a) (f: eqtype_as_type unit -> PURE a wp) : 
    prob a (lift_pure_prob_wp wp) =
@@ -91,17 +91,25 @@ let lift_pure_prob a (wp:pure_wp a) (f: eqtype_as_type unit -> PURE a wp) :
 
 sub_effect PURE ~> PROB = lift_pure_prob
 
-effect Prob a (wp: prob_post a -> pr) = PROB a (on _ wp)
-effect ProbAny (a:Type) = Prob a (fun post -> 0.0R)
 
-let coin () : Prob bool (fun (post) -> (post true +. post false) /. two) =
+(* let lift_div_prob a (wp:pure_wp a) (f: eqtype_as_type unit -> DIV a wp) : 
+   prob a (lift_pure_prob_wp wp) =
+   assume False; // TODO
+   //point_distribution (f ())
+   admit()
+
+sub_effect DIV ~> PROB = lift_div_prob *)
+
+effect ProbAny (a:Type) = PROB a (fun post -> 0.0R)
+
+let coin () : PROB bool (fun (post) -> (post true +. post false) /. two) =
   PROB?.reflect (uniform_distribution [true;false])
 
-let test1 () : Prob bool (fun post -> (post true +. post false) /. two) = coin ()
+let test1 () : PROB bool (fun post -> (post true +. post false) /. two) = coin ()
 
 let test2 () : ProbAny bool = coin ()
 
-let test3 x : Prob string (prob_wreturn x) 
+let test3 x : PROB string (prob_wreturn x) 
 by (admit_all()) = assume False; x
 
 let test4 () : PROB string (prob_wreturn "hello") = test3 "hello"
@@ -109,8 +117,9 @@ let test4 () : PROB string (prob_wreturn "hello") = test3 "hello"
 let f (b:bool) : nat = if b then 0 else 1
 
 irreducible
-let bind_return #a #b (wp1:prob_wp a) (f:a->b) : Lemma(prob_wbind wp1 (fun x -> prob_wreturn (f x))
-                                  == on _ (fun(post:prob_post b) -> wp1 (fun x -> post (f x))))
+let bind_return #a #b (wp1:prob_wp a) (f:a->b) : 
+    Lemma(prob_wbind wp1 (fun x -> prob_wreturn (f x))
+                      == (fun(post:prob_post b) -> wp1 (fun x -> post (f x))))
   [SMTPat (prob_wbind wp1 (fun x -> prob_wreturn (f x)))]                                 
         =
   admit()				     
@@ -121,14 +130,14 @@ let return_bind #a #b (x:a) (wp2:a -> prob_wp b) : Lemma(prob_wbind (prob_wretur
   =
   admit()
 
-let test5 () : Prob nat (fun post -> (post 0 +. post 1) /. two) =
+let test5 () : PROB nat (fun post -> (post 0 +. post 1) /. two) =
   let c : bool = coin() in
   f c
 
-let prob_wbind_on #a #b (wp1:prob_wp a) (wp2:a -> prob_wp b) : 
+(*let prob_wbind_on #a #b (wp1:prob_wp a) (wp2:a -> prob_wp b) : 
   Lemma(prob_wbind (on (prob_post a) #pr wp1) wp2 == prob_wbind wp1 wp2)
   [SMTPat (prob_wbind (on _ wp1) wp2)]
-  = ()
+  = () *)
 
 (*
 open FStar.Tactics.Simplifier
@@ -182,11 +191,11 @@ let xxx (a:nat) : nat by (
 (* let x =
 assert (forall a b (x y:a). a `subtype_of` b ==> eq2 #a x y ==> eq2 #b x y) *)
 
-let test6 () : Prob nat (fun p -> p 0)
+let test6 () : PROB nat (fun p -> p 0)
 =
   let c : bool = coin() in 0
 
-let on_beta #a #b (f:_->_) x : Lemma(on a #b f x == f x) = ()
+// let on_beta #a #b (f:_->_) x : Lemma(on a #b f x == f x) = ()
 
 (*let wrong #a (w1 w2: prob_wp a) : Lemma(w1 `stronger` w2) 
 [SMTPat (w1 `stronger` w2) ]
@@ -205,14 +214,14 @@ Lemma(largest (fun (p:pr) -> c ==> f p) == ifte c (largest f) 1.0R)
 [SMTPat (largest (fun (p:pr) -> c ==> f p))]
 = assume False
 
-let simp1 #a k f :
+(* let simp1 #a k f :
 Lemma((forall k. (forall (x:a). f x ==> k x) ==> (forall (x:a). k x))
 ==
 (forall (x:a). f x))
 [SMTPat (forall k. (forall (x:a). f x ==> k x) ==> (forall (x:a). k x))]
-= assume False
+= assume False *)
 
-let probr #a (x:a) : Prob a (prob_wreturn x) by (admit_all()) = x
+let probr #a (x:a) : PROB a (prob_wreturn x) by (admit_all()) = x
 
 let simp2 #a c f :
   Lemma((forall (x:a). c == x ==> f x) == f c) = assume False
@@ -229,11 +238,13 @@ let simplify_implies_auto_squash p q : Lemma((p ==> auto_squash q) == (p ==> q))
 
 let simplfify_eq_true b : Lemma((b = true) == b) = ()
 
-let simplify_lift_pure_prob_wp_auto_squash f : Lemma(lift_pure_prob_wp (fun post -> auto_squash (f post)) == lift_pure_prob_wp (fun post -> f post)) = admit()
+let simplfify_eqq_true b : Lemma((b == true) == b2t b) = admit()
+
+let simplify_lift_pure_prob_wp_auto_squash f : Lemma(lift_pure_prob_wp (fun post -> auto_squash (f post)) == lift_pure_prob_wp (fun post -> f post)) by (admit_all()) = ()
 
 //let simplify_lift_pure_prob_wp_trivial (#a:Type) (x:a) : Lemma(lift_pure_prob_wp (fun (post:pure_post a) -> (post x)) == (fun (post:prob_post a) -> post x)) = admit()
 
-let simplify_lift_pure_prob_wp_pure_return (#a:Type) (x:a) : Lemma(lift_pure_prob_wp (pure_return a x) == prob_wreturn x) = admit()
+let simplify_lift_pure_prob_wp_pure_return (#a:Type) (x:a) : Lemma(lift_pure_prob_wp (pure_return a x) == prob_wreturn x) by (admit_all()) = admit()
 
 let simplify_pure_return (#a: Type) (x: a) :
   Lemma((fun post -> post x) == pure_return a x) = admit()
@@ -241,7 +252,7 @@ let simplify_pure_return (#a: Type) (x: a) :
 let simplify_pure_return' (#a: Type) (x: a) :
   Lemma((fun post -> auto_squash (post x)) == pure_return a x) = admit()
 
-let pure_admit_wp (a:Type) : pure_wp a = (fun (p: pure_post a) -> True)
+let pure_admit_wp (a:Type) : pure_wp a by (admit_all()) = (fun (p: pure_post a) -> True)
 
 let simplify_cond_pure_return (#a: Type) (c: Type) (x: a) :
   Lemma((fun post -> c ==> post x) == ifte c (pure_return a x) (pure_admit_wp a)) = admit()
@@ -275,96 +286,160 @@ let lift_pure_prob_wp_pure_admit_wp a :
 let prob_wbind_prob_admit (#a:Type) (#b:Type) (wp2:a->prob_wp b) :
   Lemma(prob_wbind (prob_admit_wp a) wp2 == prob_admit_wp b) = admit()
 
-let rec simplifier () : Tac unit =
-  l_to_r [`simplify_if];
-  l_to_r [`simplify_pure_null_wp_ax1];
-  l_to_r [`simplify_lift_pure_prob_wp_pure_return];
-  l_to_r [`simplfify_eq_true];
-  l_to_r [`simplify_pure_return];
-  l_to_r [`simplify_pure_return'];
-  l_to_r [`simplify_cond_pure_return];
-  l_to_r [`ifte_lift_lift_pure_prob_wp];
-//  l_to_r [`lift_pure_prob_wp_pure_admit_wp];
-  l_to_r [`ifte_lift_prob_wbind];
-//  l_to_r [`prob_wbind_prob_admit];
-//  l_to_r [`bind_return];
+let if_ifte1 (#a:Type) (c:bool) (x y z:a) :
+    Lemma((if c then ifte c x y else z) == (if c then x else z)) = admit()
 
-  ()
-//  if goal = cur_goal() then ()
-//  else simplifier()
-//
-let test8a c : Prob nat 
-//(prob_wreturn (if c then 0 else 1))
-(fun post -> 0.0R)
-by (
-dump"before";
-simpl ();
-  l_to_r [`simplify_if];
+let simp_forall_x_xeqc_fx (#a:Type) (c:a) f :
+    Lemma((forall (x:a). x == c ==> f x) == f c) = admit()
+let simp_forall_x_ceqx_fx (#a:Type) (c:a) f :
+    Lemma((forall (x:a). c == x ==> f x) == f c) = admit()
+
+let simp_forall_k (#a:Type) f g :
+    Lemma((forall k. (forall (x:a). f x ==> k x) ==> g k) == g f)
+    = admit()
+
+let simp_fun_ite (#a:Type) c f g :
+    Lemma((fun p -> (c ==> f p) /\ (~c ==> g p)) == ifte c f g)
+    = admit()
+
+(*
+/// Runs tac and returns whether tac changed the goal.
+/// Assumes that only the current goal is affected and that the current goal is not removed
+let changed_tac (tac: unit -> Tac unit) : Tac bool =
+    let goal = cur_goal () in
+    tac ();
+    let goal2 = cur_goal () in
+    not (term_eq goal goal2)
+*)
+
+let ifte_inline (#a:Type) c (d:Type->a) (e:Type->a) :
+  Lemma(ifte c (d c) (d c) == ifte c (d True) (d False)) = admit()
+
+// (lift_pure_prob_wp (fun post -> forall (any_result: nat). post any_result))
+
+//let lift_pure_prob_wp #a (wp:pure_wp a) : prob_wp a =
+//    (fun (post:prob_post a) -> largest (fun (p:pr) -> wp (fun x -> p <=. post x)))
+
+let lift_pure_prob_wp_inf (#a:Type) :
+  Lemma(lift_pure_prob_wp (fun post -> forall (x: a). post x)
+     == (fun (post: prob_post a) -> inf post))
+     by (admit_all())
+     = ()
+
+assume val ifte_True (a:Type) (x:a) (y:a) : Lemma(ifte True x y == x)
+
+let simplifier1 () : Tac unit =
   l_to_r [`simplify_pure_null_wp_ax1];
   l_to_r [`simplify_lift_pure_prob_wp_pure_return];
   l_to_r [`simplfify_eq_true];
+  l_to_r [`simplfify_eqq_true];
   l_to_r [`simplify_pure_return];
   l_to_r [`simplify_pure_return'];
   l_to_r [`simplify_cond_pure_return];
   l_to_r [`ifte_lift_lift_pure_prob_wp];
   l_to_r [`lift_pure_prob_wp_pure_admit_wp];
-//simplifier ();
-//simpl ();
-//simplifier ();
-simpl ();
   l_to_r [`ifte_lift_prob_wbind];
+  l_to_r [`prob_wbind_prob_admit];
+  l_to_r [`if_ifte1];
+  l_to_r [`lift_pure_prob_wp_inf];
+  l_to_r [`return_bind];
+  l_to_r [`simp_forall_x_xeqc_fx];
+  l_to_r [`simp_forall_x_ceqx_fx];
+  l_to_r [`simp_forall_k];
+  l_to_r [`simp_fun_ite];
+  l_to_r [`ifte_True];
+  ()
 
-(*
- prob_wbind (ifte c (lift_pure_prob_wp (pure_return unit ())) (prob_admit_wp unit))
-                  (fun _ x -> prob_wreturn 0 x)
-              else
-              *)
-              
-dump"test8a";
-admit_all()) =
+let forget_result #a #b (tac: a -> Tac b) x : Tac unit = let _ = tac x in ()
+
+let auto_squash_intro_lemma (#a: Type) (x: squash a) : squash (auto_squash a) = ()
+
+let auto_squash_intro () : Tac unit = apply(`auto_squash_intro_lemma)
+
+/// Assumes a focused goal
+let rec intros () : Tac unit =
+    match term_as_formula (cur_goal ()) with
+      | Implies _ _ -> let _ = implies_intro () in intros ()
+      | Forall _ _ -> let _ = forall_intro () in intros ()
+      | True_ -> trivial ()
+      | And _ _ -> split(); iterAll intros
+      | App hd _ ->
+      	  (match inspect hd with
+	    | Tv_FVar const ->
+	        let qn = inspect_fv const in
+                if qn = squash_qn then (squash_intro(); intros())
+	    	else if qn = ["Prims"; "auto_squash"]
+	    	then (auto_squash_intro (); intros())
+	        else ()
+            | _ -> ())
+      | _ -> ()
+
+
+(*let rec intros () : Tac bool =
+    let one = split <|> forget_result implies_intro <|> forget_result forall_intros <|> double_squash_intro <|> trivial in
+    try one (); iterAll (forget_result intros); true
+    with | _ -> false *)
+
+let rec simplifierFocused () : Tac unit =
+  dump "starting simplifier";
+  simpl();
+  dump "simpl done";
+  let _ = intros() in
+  dump "intros done";
+  iterAll simplifierFocused'
+
+and simplifierFocused' () : Tac unit =
+  let goal = cur_goal () in
+  simplifier1 ();
+  let goal2 = cur_goal () in
+  if (term_eq goal goal2)
+  then ()
+  else iterAll simplifierFocused
+
+let simplifier () : Tac unit =
+  focus simplifierFocused
+
+let simplifierAll () : Tac unit =
+  iterAll simplifierFocused
+
+let unfold_tac () : Tac unit = norm [delta_qualifier ["unfold"]]
+
+let test8a c : PROB nat (fun post -> if c then post 0 else post 1)
+   by (simplifier(); cases_bool (quote c); simplifierAll(); dump""; unfold_tac()) =
   if c then probr 0 else probr 1
 
 
 
+let test8b c : PROB nat (fun post -> if c then post 0 else post 1)
+   by (cases_bool (quote c);
+       simplifierAll();
+       dump "") =
+  if c then 0 else 1
+
+
+//let strengthen (a b:Type) (p:a -> ProbAny b) (wp:a -> prob_wp b) : (q:(x:a -> PROB b (wp x)){p==q}) = assume False; p
+
 // FAILS
-let test8 () : Prob nat (fun p -> (p 0 +. p 1) /. two) by (
-split();
+let test8 () : PROB nat (fun p -> (p 0 +. p 1) /. two) by (
+simplifier();
+//l_to_r [`ifte_inline];
 smt();
-split();
-split();
-let c = forall_intro() in
-unfold_def(`pure_null_wp);
-smt();
-unfold_def(`pure_null_wp);
-smt();
-
-
-squash_intro();
-dump"before";
-apply_lemma (`strongerI);
-norm[];
-let post = forall_intro() in
-norm [delta_only ["ProbabilismWP.prob_wbind"]];
-l_to_r [`on_beta];
-//l_to_r [`prob_wbind_beta];
-norm [simplify];
-l_to_r [`bool_simp1; `bool_simp2; `bool_simp3; `bool_simp4];
-norm [simplify];
-l_to_r[`largest_single; `simp1; `simp2];
-norm [simplify];
-
+//smt();
+//smt();
 dump"";
-admit_all() ) =
-   let c : bool = coin() in 0 // (if c then 0 else 1)
+admit_all();
+()
+) =
+   let c : bool = coin() in (if c then 0 else 1)
 
 // FAILS
-// let test9 () : Prob bool (fun post -> (post true +. post false) /. two) =
-//   (if coin () then coin() else coin())
+let test9 () : Prob bool (fun post -> (post true +. post false) /. two) =
+  (if coin () then coin() else coin())
 
 // FAILS
-// let test10 () : PROB nat (fun p -> (p 0 +. p 1) /. two) =
-//   let c : bool = coin() in
-//   (if true then 0 else 1)
+let test10 () : PROB nat (fun p -> (p 0 +. p 1) /. two) =
+  let c : bool = coin() in
+  (if true then 0 else 1)
 
 
 (* 

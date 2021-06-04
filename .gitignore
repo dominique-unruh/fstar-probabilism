@@ -1,3 +1,7 @@
 *~
 /queries-*.smt2
 /debug.log
+/_region_.*
+*.aux
+*.log
+/notes.pdf

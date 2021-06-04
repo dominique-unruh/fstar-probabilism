@@ -1,0 +1,244 @@
+\documentclass[a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb}
+\usepackage[margin=1in]{geometry}
+\usepackage{autoref}
+
+\newcommand\setR{\mathbb R}
+\newcommand\Rpos{\setR_{\geq0}}
+\newcommand\prop{\mathtt{prop}}
+\renewcommand\wp{\mathtt{wp}}
+\newcommand\E{\operatorname E}
+\newcommand\elltwo{\ell^2}
+\newcommand\setC{\mathbb C}
+\newcommand\calH{\mathcal H}
+\newcommand\density{\mathcal S(\calH)}
+\DeclareMathOperator\tr{tr}
+
+\begin{document}
+
+\section{Probabilism monad}
+
+The representation type is $\mathtt{distribution} \alpha$ which is
+some reasonable distribution type. E.g., $\alpha\to \Rpos$
+with a suitable summability contraint.
+
+For the weakest precondition function, there are several choices:
+\begin{itemize}
+\item $\mathtt{wp}\ \alpha$ could be
+  $(\alpha\to\Rpos)\to \Rpos$ (or $[0,1]$ instead of
+  $\Rpos$, and potentially we could allow $\infty$). Advantage: very
+  natural. Disadvantages:
+  \begin{itemize}
+  \item When defining the embedding of \texttt{PURE} into
+    \texttt{PROB}, one needs a function that computes suprema (type:
+    $(\Rpos\to\prop)\to\prop$) which is equivalent to having an
+    embedding $\mathtt{bool}\to\prop$
+    (\texttt{StrongExcludedMiddle.fst}).
+  \item When trying to add \texttt{reifiable} to the effect, this is
+    rejected because the types are ``informative'' according to the
+    error message.
+  \end{itemize}
+  I will call this the \emph{wp-approach}.
+\item $\mathtt{wp}\ \alpha$ could be
+  $(\alpha\to\mathbf{R})\to \mathbf{R}$ where
+  $\mathbf{R} := (\Rpos\to\prop)\{\text{monotonicity condition}\}$.
+  Basically, $\mathbf R$ is built using Dedekind cuts from the normal
+  reals.  (And there could be different variants of this,
+  corresponding, e.g., to allowing a function representing $\infty$ or
+  not, or we could force all Dedekind cuts to be in $[0,1]$.)
+
+  Disadvantage: We now have to formulate all operations on reals again
+  for a ``copy'' of the reals, namely the Dedekind cuts. And SMT will
+  not know how to handle them. Advantages: The two disadvantages from
+  the wp-approach vanish.
+\item $\mathtt{wp}\ \alpha$ could be
+  $\Rpos\to(\alpha\to\Rpos)\to\prop$. The interpretation would be that
+  $\wp\ \alpha\ A\ B$ is the type of a program $P$ iff
+  $\E[B(P)]\geq A$ ($\E[]$=expectation, $P$ in abuse of notation is
+  the random variable representing the result of running $P$).
+  Basically, the wp is a function that, for $A,B$ tells us whether the
+  Hoare triple $\{A\}P\{B\}$ is true.
+
+  This is actually closely related to the Dedekind approach: The type
+  $(\alpha\to\Rpos)\to \mathbf{R}$ (where we use Dedekind cuts only on
+  the output) is isomorphic to $\Rpos\to(\alpha\to\Rpos)\to\prop$ (up
+  to potential refinements).
+
+  One could additionally restrict this type in some sensible ways,
+  e.g., require some monotonicity.
+
+  I call this the \emph{Hoare-approach}
+  
+  Advantage: Same as Dedekind cuts. But less of a ``nested approach''.
+  Disadvantage: Probably also tricky for SMT.
+\item We can also decide to use a $\mathtt{wp}\ \alpha$ that does not
+  give us full information about the program. (I say a wp-type gives
+  full information if no two semantically different programs have the
+  same wp-type.) For example, \texttt{pure\_wp} actually can be used
+  for the \texttt{PROB} monad, in the sense that we just treat
+  programs as possibilistic (i.e., we say what can happen but not with
+  what probability.)
+
+  The advantage is that this is simpler. The disadvantage is that some
+  useful specifications (e.g., a uniform bit) cannot be described.
+
+  Also, anything that can be expressed in this modeling can still be
+  expressed using the more expressive approaches above. (In a similar
+  way as we have \texttt{Pure} and \texttt{Tot} as special cases of
+  \texttt{PURE}.)
+
+  I call this the \emph{possibilistic approach}.
+\end{itemize}
+
+One challenge is that it is very hard to get programs to type
+check. Mostly because the resulting VCs involve a lot of
+boilerplate. I would expect that they often can be much simpler after
+just running a simplifier on the subgoal first. The problem is that it
+is not very easy to define a good simplifier in F* (I think). Most of
+my experiments so far were about doing simplification in the
+wp-approach. (But it should be very similar in the other approaches
+because from the simplifier approach, the actual WP type is mostly
+hidden away anyway.)
+
+\subsection{Reasoning via lemmas}
+
+Besides trying to give programs a descriptive type, we can also write
+them first, and then prove lemmas about their probabilistic
+behavior. Especially if we have enabled reification of out effect, we
+could write things like \texttt{Lemma(weight (reify program ()) = 1)}
+to denote that \emph{program} terminates. (\texttt{weight} returns the
+weight of a distribution.) I have not tried out yet how easy it is to
+do that (I don't know how exactly a proof of a lemma can ``see'' how a
+function that we reason about is defined). But if it is possible to
+use this approach, then we get a whole range of useful proof
+methods. We can even encode pRHL in F*, it shouldn't even be too
+difficult (of course, maybe I am overoptimistic here).
+
+\subsection{Advanced/extra stuff}
+
+\begin{itemize}
+\item Above, we implicitly assumed that distributions are summable
+  functions $\alpha\to\Rpos$. In other words, we assume discrete
+  measure spaces. That means that, e.g., we cannot write the uniform
+  distribution on the real interval $[0,1]$. Instead, one could a
+  probabilistic effect that has one additional parameter which
+  specifies the underlying sigma-algebra. \texttt{PROB $\alpha$
+    $\sigma$ wp} would then use $\sigma$-algebra $\sigma$ over the
+  type $\alpha$. ($\sigma$ could/should be implicit, maybe using
+  type-classes) And then post-conditions would have to be measurable
+  functions, etc. Not sure this all works, and it's definitely not
+  something to do on the first try! But I wanted to note it down as a
+  possible extension.
+\item Extraction: can we extract probabilistic programs into
+  OCaml/F\#/etc in a way that they simply call the system random to
+  get randomness? Maybe this is easy? I don't know how configuring
+  extraction for a new effect works.
+\end{itemize}
+
+TODO: mention that we use a monolithic state here
+
+\section{Quantum effect}
+
+For now, I will assume that we use some fixed Hilbert space $\calH$
+for the state space (the effect is parametrized over the Hilbert
+space). That is, we just have one big state space that we can operate
+on, not many individual quantum registers or something like that.
+
+Probably the easiest is to model that Hilbert space as
+$\elltwo(\alpha)$, the square-summable functions
+$\alpha\to\setC$. (Infinite-dimensional analogue to $\setC^\alpha$) It
+would also be possible to be more general and model the type of
+Hilbert spaces and then to allow arbitrary Hilbert spaces. But that
+involves more modeling. In F*, this would be
+$\mathtt{ell2}\ \alpha := (\alpha\to\setC)\{\text{square
+  summable}\}$.
+
+For notational simplicity, I will assume that $\calH$ is fixed (not a
+parameter to the monad). It is understood that $\calH$ is always
+passed as a parameter to all relevant functions.
+
+
+\subsection{Representation type}
+
+For the representation type (basically the denotational semantics), there are several options:
+
+\subsubsection{Piggybacking on the probabilism effect}
+\label{sec:piggy.prob}
+  
+One approach for the quantum effect is to derive the quantum effect
+from the probabilism effect:
+
+That is, first we define \texttt{PROB\_ST} via
+$\mathtt{PROB\_ST}\ \alpha\ s\ \mathtt{wp} := s \to \mathtt{PROB}\
+(s\times \alpha)\ \mathtt{(wp\ s)}$. (I'm not sure it can be done exactly like that
+because \texttt{effect} for defining derived effects probably does not
+allow to have a function on the rhs. But something like this might
+work.)
+
+Then we define the quantum effect as
+$\mathtt{Q}\ \alpha\ \mathtt{wp} := \mathtt{PROB\_ST}\ \alpha\ \calH\
+\mathtt{wp'}$ where \texttt{wp'} is the quantum-wp \texttt{wp}
+rewritten into a probabilistic wp \texttt{wp'}.  E.g., if \texttt{wp}
+would be a wp saying something like ``the final quantum state is in
+subspace $P$'', then \texttt{wp'} would be a saying something like ``the final state-monad state is a vector that with probability 1 satisfies that it is in the subspace $P$''. The details of this transformation depends on the kind of quantum-wps we allow. (See the discussion of wps below.)
+
+In this approach, since we do not define the quantum effect from scratch, we do not need to define the representation type.
+However, it is implicitly defined as $\calH\to(\calH\times\alpha)\to\Rpos$.
+
+TODO: Advantage
+
+TODO: Disadvantage
+
+\subsubsection{Piggybacking on the probabilism effect, density operators}
+
+Same as \autoref{sec:piggy.prob}, except we use 
+$\mathtt{Q}\ \alpha\ \mathtt{wp} := \mathtt{PROB\_ST}\ \alpha\ \density\
+\mathtt{wp'}$ where $\density$ is the type of density operators over $\calH$.
+
+Not sure this approach conveys any noticeable advantages over the previous one.
+
+\subsubsection{Superoperators}
+
+Here $\mathtt{repr}\ \alpha := \alpha\to\mathtt{superoperator}\ \calH$
+where $\mathtt{superoperator}\ \calH$ is the set of completely
+positive trace-reducing maps (CPTRM).
+$f:\mathtt{repr}\ \alpha$ is additionally constrained to satisfy that $\sum_{x:\alpha} f(\alpha)$ is a CPTRM (w.r.t. pointwise convergence w.r.t.~trace norm).
+The meaning of such $f$ is that on initial state $\rho$, we get classical return value $x$ with probability $\tr f(x)\rho$, and the (conditional) final state is then $f(x)\rho/\tr f(x)\rho$.
+(This mean, $f$ in essence describes a generalized measurement.)
+
+The type $\mathtt{superoperator}\ \calH$ could be defined in numerous
+equivalent ways. But if we axiomatize the underlying mathematics
+(instead o proving it in F*) the choice of definition will have little
+or no impact on the rest. We might even leave this type completely
+abstract.
+
+TODO advantage / disadvantage
+
+\subsection{Wp-monad}
+
+TODO
+
+Same variants as in probab case
+
+Wp-approach has trouble with the need for lubs.
+Example:
+
+assume val somebool : bool
+
+assume val test (c:bool) : QUANTUM type wp
+// where wp maps operator I to operator A (if c) or to operator B (if !c)
+
+let val test2 () = test somebool
+// What wp would test2 have? The wp should map I to min(A,B). But min(A,B) does not exist in most cases!
+(https://www.ams.org/journals/proc/1951-002-03/S0002-9939-1951-0042064-2/S0002-9939-1951-0042064-2.pdf, Thm 6)
+
+This can be avoided by using the Hoare-approach
+
+
+
+
+
+  
+\end{document}

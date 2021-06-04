@@ -91,7 +91,6 @@ let lift_pure_prob a (wp:pure_wp a) (f: eqtype_as_type unit -> PURE a wp) :
 
 sub_effect PURE ~> PROB = lift_pure_prob
 
-
 (* let lift_div_prob a (wp:pure_wp a) (f: eqtype_as_type unit -> DIV a wp) : 
    prob a (lift_pure_prob_wp wp) =
    assume False; // TODO
@@ -424,8 +423,8 @@ let test8 () : PROB nat (fun p -> (p 0 +. p 1) /. two) by (
 simplifier();
 //l_to_r [`ifte_inline];
 smt();
-//smt();
-//smt();
+smt();
+smt();
 dump"";
 admit_all();
 ()
@@ -433,7 +432,7 @@ admit_all();
    let c : bool = coin() in (if c then 0 else 1)
 
 // FAILS
-let test9 () : Prob bool (fun post -> (post true +. post false) /. two) =
+let test9 () : PROB bool (fun post -> (post true +. post false) /. two) =
   (if coin () then coin() else coin())
 
 // FAILS

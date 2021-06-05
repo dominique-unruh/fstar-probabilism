@@ -44,11 +44,6 @@ assume val point_distribution (#a:Type) (x:a) : distribution a
 // Uniform distribution on x (must be a non-empty list)
 assume val uniform_distribution (#a:Type) (x:list a{Cons? x}) : distribution a
 
-// Simple auxiliary lemma for showing equality of two wp's
-let prob_wp_eqI #a (wp1 wp2: prob_wp a) :
-    Lemma (requires (forall post. wp1 post = wp2 post))
-          (ensures (wp1 == wp2)) = admit()
-
 // Representation type for PROB effect.
 // "prob a w" is the type of distributions f over a that satisfy the wp w.
 // (I.e., they satisfy "forall post, sum_{x:a} f(x)post(x) >= w(post).)
@@ -68,9 +63,8 @@ let prob_wbind #a #b (w1:prob_wp a) (w2:a -> prob_wp b) : prob_wp b =
   fun post -> w1 (fun x -> w2 x post)
 
 // Semantics of "let x = p1 in p2 x"
-let prob_bind a b (w1:prob_wp a) (w2:a -> prob_wp b)
-      (f: prob a w1) (g: (x:a -> prob b (w2 x))) : prob b (prob_wbind w1 w2) =
-   admit()   
+assume val prob_bind (a b:Type) (w1:prob_wp a) (w2:a -> prob_wp b)
+      (f: prob a w1) (g: (x:a -> prob b (w2 x))) : prob b (prob_wbind w1 w2)
 
 // w1 is a more restrictive wp than w2
 let stronger #a (w1 w2:prob_wp a) = forall post. w1 post >=. w2 post
@@ -348,7 +342,8 @@ let simplifierAll () : Tac unit =
 // Can be simply applied at the very end of a tactic.
 let unfold_tac () : Tac unit = norm [delta_qualifier ["unfold"]]
 
-// Testing the simplifier (this does not work without simplifier)
+// Testing the simplifier (this does not work without simplifier).
+// Note that this one typechecks without simplifier in ProbabilismHoare
 let test3 x : PROB string (prob_wreturn x) by (simplifier()) = x
 
 // Testing if things work

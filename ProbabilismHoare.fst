@@ -1,6 +1,13 @@
-// -*- mode: fstar; -*-
+(*
 
-module Probabilism
+This file sketches the modeling and use of the PROB effect based on
+the wp-approach.
+
+It only contains the basic definitions at this point.
+
+*)
+
+module ProbabilismHoare
 
 open FStar.Real
 open FStar.List.Tot
@@ -184,10 +191,10 @@ let test4 () : PROB string (prob_wreturn "hello") = test3 "hello"
 
 let f (b:bool) : nat = if b then 0 else 1
 
-let goal = (Probabilism.prob_stronger (Probabilism.prob_wbind #Prims.bool
+let goal = (ProbabilismHoare.prob_stronger (ProbabilismHoare.prob_wbind #Prims.bool
              #Prims.nat
              (fun pre post -> pre <=. (post true +. post false) /. FStar.Real.two)
-             (fun c -> Probabilism.prob_wreturn #Prims.nat (Probabilism.f c)))
+             (fun c -> ProbabilismHoare.prob_wreturn #Prims.nat (ProbabilismHoare.f c)))
          (fun pre post -> pre <=. (post 0 +. post 1) /. FStar.Real.two))
 
 // let void #a (x:a) = ()

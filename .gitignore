@@ -5,3 +5,5 @@
 *.aux
 *.log
 /notes.pdf
+notes.out
+notes.synctex.gz

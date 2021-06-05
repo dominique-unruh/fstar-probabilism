@@ -3,7 +3,7 @@
 \usepackage[T1]{fontenc}
 \usepackage{amsmath,amssymb}
 \usepackage[margin=1in]{geometry}
-\usepackage{autoref}
+\usepackage{hyperref}
 
 \newcommand\setR{\mathbb R}
 \newcommand\Rpos{\setR_{\geq0}}
@@ -14,7 +14,10 @@
 \newcommand\setC{\mathbb C}
 \newcommand\calH{\mathcal H}
 \newcommand\density{\mathcal S(\calH)}
+\newcommand\bpos{\mathbf B(\calH)}
 \DeclareMathOperator\tr{tr}
+\DeclareMathOperator\supp{supp}
+
 
 \begin{document}
 
@@ -66,8 +69,8 @@ For the weakest precondition function, there are several choices:
   the output) is isomorphic to $\Rpos\to(\alpha\to\Rpos)\to\prop$ (up
   to potential refinements).
 
-  One could additionally restrict this type in some sensible ways,
-  e.g., require some monotonicity.
+  One could additionally restrict this type in some sensible ways, e.g., require some monotonicity.
+  (How close this approach is to the Dedekind-approach depends on which monotonicity requirements we use.)
 
   I call this the \emph{Hoare-approach}
   
@@ -102,6 +105,20 @@ wp-approach. (But it should be very similar in the other approaches
 because from the simplifier approach, the actual WP type is mostly
 hidden away anyway.)
 
+
+\paragraph{A note on the ``completeness'' of expectation-based wps.}
+It does hold that a distribution / probabilistic function (i.e.,
+program) $D$ is completely described by giving the weakest
+precondition transformer if wps are expressed using expectations (i.e., as in the first three approaches, but not as in the possibilistic approach).
+However, that means less for our setting than it might seem at the first glance.
+The reason is that wp's in F* are not necessarily actually \emph{weakest} preconditions.
+They are just sufficient preconditions.
+For example, the program $0$ (that has $0$ termination probability) has the wp \texttt{fun \_ -> 0}. But any other program also has the type \texttt{PROB \_ (fun \_ -> 0)}.
+The program $0$ is special merely in the way that $0$ has \emph{only} this wp.
+But if we type a program with a given wp, we cannot express the fact that that wp is indeed the strongest one!
+So the completeness of the wp-approach does not really imply much about the expressivity of describing programs with wp's.
+Even worse (for practical purposes): We cannot express ``the program returns a uniform bit'' but not something like: ``the program returns a uniform bit when it terminates'' (a non-total version of the previous thing).
+
 \subsection{Reasoning via lemmas}
 
 Besides trying to give programs a descriptive type, we can also write
@@ -115,6 +132,7 @@ function that we reason about is defined). But if it is possible to
 use this approach, then we get a whole range of useful proof
 methods. We can even encode pRHL in F*, it shouldn't even be too
 difficult (of course, maybe I am overoptimistic here).
+
 
 \subsection{Advanced/extra stuff}
 
@@ -136,8 +154,6 @@ difficult (of course, maybe I am overoptimistic here).
   get randomness? Maybe this is easy? I don't know how configuring
   extraction for a new effect works.
 \end{itemize}
-
-TODO: mention that we use a monolithic state here
 
 \section{Quantum effect}
 
@@ -187,9 +203,14 @@ subspace $P$'', then \texttt{wp'} would be a saying something like ``the final s
 In this approach, since we do not define the quantum effect from scratch, we do not need to define the representation type.
 However, it is implicitly defined as $\calH\to(\calH\times\alpha)\to\Rpos$.
 
-TODO: Advantage
+Advantage of this approach: we get to reuse a lot from the \texttt{PROB} effect. Possibly this also makes interoperability easier (embedding \texttt{PROB} into \texttt{Q}). On the other hand, \texttt{PROB -> Q} should also be doable via the \texttt{sub\_effect} directive. So maybe that's not really much of an advantage. 
 
-TODO: Disadvantage
+Disadvantage: The modeling is less close to ``honest'' semantics of the program.
+For example, a program that outputs $\ket0,\ket1$ with probability $\frac12$ each does not have the same semantics as one outputting $\ket+,\ket-$.
+Even though the density operator would be the same.
+And while at the first glance, the present approach may seem to be nice because we do not need to formalize density operators, superoperators, etc., it might be that we just move this necessity to a different place.
+Namely, if we reason about programs via lemmas, we might need to use density operators etc. in the proofs of these lemmas. (E.g., if we want to show that one program is equivalent to another, we will need to compute their density operators.
+And additionally we need to prove that same density operator means equivalent, something we get for free if we directly use the formalism from \autoref{sec:superop}.
 
 \subsubsection{Piggybacking on the probabilism effect, density operators}
 
@@ -200,13 +221,14 @@ $\mathtt{Q}\ \alpha\ \mathtt{wp} := \mathtt{PROB\_ST}\ \alpha\ \density\
 Not sure this approach conveys any noticeable advantages over the previous one.
 
 \subsubsection{Superoperators}
+\label{sec:superop}
 
 Here $\mathtt{repr}\ \alpha := \alpha\to\mathtt{superoperator}\ \calH$
 where $\mathtt{superoperator}\ \calH$ is the set of completely
 positive trace-reducing maps (CPTRM).
 $f:\mathtt{repr}\ \alpha$ is additionally constrained to satisfy that $\sum_{x:\alpha} f(\alpha)$ is a CPTRM (w.r.t. pointwise convergence w.r.t.~trace norm).
 The meaning of such $f$ is that on initial state $\rho$, we get classical return value $x$ with probability $\tr f(x)\rho$, and the (conditional) final state is then $f(x)\rho/\tr f(x)\rho$.
-(This mean, $f$ in essence describes a generalized measurement.)
+(This mean, $f$ in essence describes a generalized measurement. But note that, e.g., Nielsen-Chuang uses the name generalized measurement for something slightly more restricted where every $f(\alpha)$ is a superoperator of the form $\rho\mapsto M\rho M^\dagger$.)
 
 The type $\mathtt{superoperator}\ \calH$ could be defined in numerous
 equivalent ways. But if we axiomatize the underlying mathematics
@@ -214,27 +236,145 @@ equivalent ways. But if we axiomatize the underlying mathematics
 or no impact on the rest. We might even leave this type completely
 abstract.
 
-TODO advantage / disadvantage
+Advantage / disadvantage: implicitly described in
+\autoref{sec:piggy.prob} already.
 
 \subsection{Wp-monad}
 
-TODO
+For the type of quantum programs, we need to define the type (and
+interpretation) of wp's. This is needed even if we piggy-back
+(\autoref{sec:piggy.prob}) because in that approach, we translate
+quantum-wps \texttt{wp} into probabilistic wps \texttt{wp'} as part of
+the definition of \texttt{Q}.
 
-Same variants as in probab case
+As in the probabilistic setting, we have four different approaches.
 
-Wp-approach has trouble with the need for lubs.
-Example:
+\subsubsection{Wp-approach}
+\label{sec:q.wp.approach}
 
-assume val somebool : bool
+The wp-approach would be to define a wp as $w:\bpos\to\bpos$ where $\bpos$ is the set of bounded operators on $\calH$. The interpretation is that a program with superoperator $f$ satisfies $w$ iff for any $B$ and any $\rho\in\density$, $\tr w(B)\rho \leq \tr Bf(\rho)$. (I have ignored the classical return value of the program here for now. I.e., this is only suitable for programs of type \texttt{Q unit}.)
 
-assume val test (c:bool) : QUANTUM type wp
-// where wp maps operator I to operator A (if c) or to operator B (if !c)
+There is always a strongest such wp, i.e., achieving equality: $f$ is bounded w.r.t. the Hilbert-Schmidt norm and thus has an adjoint $f$. And by definition of the Hilbert-Schmidt inner product, 
+this means $\tr w(B)\rho = \tr Bf(\rho)$.
 
-let val test2 () = test somebool
-// What wp would test2 have? The wp should map I to min(A,B). But min(A,B) does not exist in most cases!
-(https://www.ams.org/journals/proc/1951-002-03/S0002-9939-1951-0042064-2/S0002-9939-1951-0042064-2.pdf, Thm 6)
+Unfortunately, this only means that we can define a strongest wp for any program whose density operator is known, we have problems with programs where we have only partial knowledge about it (because we only know the type of it's parts, not the full semantics). Consider:
 
-This can be avoided by using the Hoare-approach
+\bigskip
+
+\noindent\texttt{\frenchspacing%
+  assume val somebool : bool \\
+  assume val A0 : $\bpos$ \\
+  assume val A1 : $\bpos$ \\
+  assume val $\psi_0$ : $\calH${normalized} \\
+  let wp\_test (c:bool) (B:$\bpos$) : $\bpos$ = \\
+  \strut~~let x = $\langle \psi_0, B\psi_0\rangle$ in\\
+  \strut~~if c then x*A1 else x*A0 \\
+  assume val test (c:bool) : Q unit wp\_test \\
+  let test2 = test somebool
+}
+
+\bigskip
+
+Note \texttt{wp\_test c identity = A0} or \texttt{A1} depending on \texttt{c}.
+The rest of \texttt{wp\_test} can be ignored, I just made it fully explicit to show that it is actually a meaningful wp.
+If we want to compute the type of \texttt{test2} (and F* effects will always need a definition of what the type should be, so this is not optional), we should give it a type with a wp \texttt{wp2} that that satisfies \texttt{wp2 identity = glb A0 A1} (greatest lower bound).
+However, \texttt{glb A0 A1} does not exist unless \texttt{A0,A1} are comparable (on is $\geq$ the other).\footnote{%
+\url{https://www.ams.org/journals/proc/1951-002-03/S0002-9939-1951-0042064-2/S0002-9939-1951-0042064-2.pdf}, Thm 6}
+
+As far as I can tell, this means that the wp-approach is doomed.
+
+\subsubsection{Dedekind-approach}
+
+There might be an analogue to the Dedekind approach (I haven't thought it through), but since the idea of the Dedekind approach is simply to encode real numbers (or now bounded operators) in a way that is more friendly towards the type system (\texttt{bool} vs $\prop$), it would not change the issues raised in 
+\autoref{sec:q.wp.approach}.
+
+\subsubsection{Hoare-approach}
+
+Analogous to the Hoare-approach in the probabilistic case, we can define the type of wp's as $w:\bpos\to\bpos\to\prop$
+(still ignoring the classical return value, i.e., for \texttt{Q unit}).
+Interpretation: a program with superoperator $f$ satisfies $w$ iff for all $\rho$, $A$, $B$ with $w(A,B)=\mathtt{True}$, $\tr A\rho\leq \tr B f(\rho)$.
+
+In the probabilistic case, the Hoare approach is very closely related to the Dedekind-approach. One might wonder why this is not the case here (i.e., why does the nonexistence of glb's not lead to a problem here).
+The reason is that with the Hoare approach, we can also formulate ``non-existing glbs''.
+That is, in the example from \autoref{sec:q.wp.approach}, the wp of \texttt{test2} could simply be:
+\texttt{wp2 A B = forall c, A <= wp\_test c B} (\texttt{<=} being the Loewner order).
+In particular, the set of all $A$ satisfying \texttt{wp2 identity} would simply be all lower bounds of \texttt{A0,A1}.
+This set has no greatest element, but it still describes a kind of generalized glb (when a glb exists, that set would be generated by down-closure of the glb).
+
+If we do not assume that the return value is \texttt{unit}, we can define the wp-type as:
+$w:(\alpha\to\bpos)\to\bpos\to\prop$.
+And a program with denotation $f:\alpha\to\mathtt{superoperator}\ \calH$ satsifies $w$ iff:
+\[
+  \forall A,B,\rho.\qquad
+  \tr A\rho
+  \leq
+  \sum_{x:\alpha}
+  \tr B(x)f(x)(\rho)
+\]
+(The rhs here is the expectation of $\tr B(x)\rho'$ if $x$ denotes the (probabilitistic) classical output of the program, and $\rho'$ denotes the conditional (normalized) final state given that output.)
+
+
+\paragraph{A note on the ``completeness'' of expectation-based wps.}
+The same holds here as in the probabilistic setting, analogously.
+
+
+\subsubsection{Hoare-approach w.r.t.~subspaces / projectors}
+
+Instead of pre-/postconditions described by bounded operators, we can
+use the approach of having topologically-closed subspaces
+(equivalently, projectors) as pre-/postconditions.  This is analogous
+to the possibilistic approach for \texttt{PROB}.  The type \texttt{wp
+  $\alpha$} would then be:
+\[
+  w:\mathtt{subspace}\ \calH \to (\alpha\to\mathtt{subspace}\ \calH)
+\]
+where a program with superoperator $f$ satisfies it iff
+\[
+  \forall x:\alpha, \rho, A, B.\quad
+  w(A,B) \implies
+  \supp\rho \subseteq A \implies
+  \supp f(x)(\rho) \subseteq B(x)
+\]
+
+
+Note that in this setting, we can also use the wp-approach. Any (even infinite) set of closed subspaces has a glb (and lub).
+Whether this leads to the problems described in the probabilistic case (concerning the return type \texttt{prop} and the need to StrongExcludedMiddle etc.~and the impossibility of reifying), I have not explored. I guess they could be avoided using a Dedekind-like approach, too.
+Note that this may also depend on the concrete way how we define the type of subspaces (equivalent in classical mathematics):
+$\calH\to\mathtt{bool}$ (with refinements to make it a closed subspace) or $\calH\to\prop$ (with refinements) or as a bounded operator (with refinement to make it a projector).
+I guess $\calH\to\prop$ is what makes the type-system most happy.
+
+
+
+
+\subsection{Reasoning via lemmas}
+
+Anything said in the probabilistic setting also applies here analogously.
+
+
+\subsection{Advanced/extra stuff}
+
+\begin{itemize}
+\item Instead of $\elltwo(\alpha)$ as out Hilbert space, we could allow arbitrary Hilbert spaces. (Any Hilbert space is isomorphic to $\elltwo(\alpha)$ for some $\alpha$, but that isomorphism isn't natural in many cases.)
+\item Extraction: extracting into executable quantum language.  
+\item Quantum registers: Above, we have a monolithic quantum state. I.e., basically any quantum program would have to always specify unitaries/measurements that are applied to the whole state.
+  This is impractical.
+  Instead, we want to be able to see the quantum state as a collection of quantum registers, and we can apply operations to one or several of them, ignoring the rest of the state.
+  This is something that can be implemented as a second level above the ``raw'' quantum effect with a monolithic state. Basically, all we need is to define functions that tell us how an operator $U$ applied to a register $X$ is applied to the whole state (i.e., $U\otimes I$ up to reordering).
+  There are various approaches for this, I favor the approach I described in \url{https://arxiv.org/abs/2105.10914}.
+\item Advanced quantum registers: For more complex programs, we might not want to have to have all registers declared statically. Instead, we might want to be able to allocate new registers (unboundedly many if we are in a loop). At first, it might seem that this does not fit into the above concepts because our ``monolithic state space'' $\calH$ cannot change during execution.
+  But it can be implemented with a monolithic state space if the latter is infinite (think of it as a heap where we can allocate cells).
+  I have some more concrete ideas on this but that's probably for later.
+\item Quantum values. So far, we have a rather imperative language model. That is, we have register that we mutate.
+  A functional approach where quantum values are passed around would be nice, too.
+  In fact, we can probably emulate that once we have allocatable quantum registers (previous item).
+  We can pass register as function arguments. (Because in essence, a register is just a ``pointer'' to a subsystem.)
+  Additionally, we can setup all basic operation (such as applying a unitary) that they give their output in a freshly allocated register.
+  (E.g., \texttt{apply U to X} would translate under the hood to something like \texttt{allocate X'; SWAP X X'; apply U to X'; return X'}.)
+  And finally, we need to emulate an affine type system by using refinements that disallow using the same register in two places.
+  (I am not sure what the best approach for that is in F*.
+  One possibility would be to also support deallocation (which will just mark the register as not a valid one any more in the global (classical) state). And then all basic operations would require the input registers (by refinement) to be allocated and would deallocate them. That would automatically imply that we cannot use the same register twice.)
+  The final effect would be that a register would basically be a quantum value that can be passed around, and we have simulated a pure quantum language. (Not sure how easy it is to use the pureness in proof, though.)
+\end{itemize}
 
 
 

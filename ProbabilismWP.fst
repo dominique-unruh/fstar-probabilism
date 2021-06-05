@@ -1,42 +1,77 @@
-module ProbabilismWP
+(*
 
-(* Approach with post -> real WP and with supremum axiom *)
+This file sketches the modeling and use of the PROB effect based on
+the wp-approach.
+
+The main aim was to explore how the effect can be defined, and also
+how one can type functions.
+
+All the lemmas that are used are unproven so far.
+
+In fact, I believe the file is not really consistent because I
+sometimes switch between seeing postconditions as using non-negative
+reals, and sometimes as using non-negative extended reals, i.e.,
+including infinity. (E.g., in prob_admit_wp.)
+
+Main work/trouble was trying to get a simplifier for solving
+typing-VCs.
+
+*)
+
+module ProbabilismWP
 
 open FStar.Real
 open FStar.Tactics
 open FStar.Tactics.Builtins
-// open FStar.IndefiniteDescription
-// open FStar.FunctionalExtensionality
 
+// Non-negative reals (pr like probability is a slight misnomer
+// because we do not upper bound it by 1)
 let pr = r:real{r >=. zero}
+
+// Post-condition type
 let prob_post (a:Type) = a -> Tot pr
-// TODO: add monotonicity
+
+// Weakest precondition type
+// TODO: add suitable monotonicity constraints as refinement
 let prob_wp (a:Type) = prob_post a -> pr
 
+// Models a probability distribution, basically (f:a -> pr){sum <= 1}
 assume type distribution (a:Type) : Type
 
+// Distribution that gives probability 1 to x
 assume val point_distribution (#a:Type) (x:a) : distribution a
 
+// Uniform distribution on x (must be a non-empty list)
 assume val uniform_distribution (#a:Type) (x:list a{Cons? x}) : distribution a
 
+// Simple auxiliary lemma for showing equality of two wp's
 let prob_wp_eqI #a (wp1 wp2: prob_wp a) :
     Lemma (requires (forall post. wp1 post = wp2 post))
           (ensures (wp1 == wp2)) = admit()
 
+// Representation type for PROB effect.
+// "prob a w" is the type of distributions f over a that satisfy the wp w.
+// (I.e., they satisfy "forall post, sum_{x:a} f(x)post(x) >= w(post).)
+// TODO: A refinement has to be added with that condition
 let prob a (w:prob_wp a): Tot Type0 =
   distribution a // TODO: require w to hold
 
+// Wp corresponding to "prob_return x"
 let prob_wreturn #a x : prob_wp a = (fun post -> post x)
 
+// Semantics of "return x"
 let prob_return a (x:a) : prob a (prob_wreturn x) = 
   point_distribution x
 
+// Wp corresponding to "let x = p1 in p2 x", given the wps for p1, p2
 let prob_wbind #a #b (w1:prob_wp a) (w2:a -> prob_wp b) : prob_wp b = 
   fun post -> w1 (fun x -> w2 x post)
 
+// TODO: document or remove
 let prob_wbind_beta #a #b (w1:prob_wp a) (w2:a -> prob_wp b) (post:prob_post b) :
   Lemma (prob_wbind w1 w2 post == w1 (fun x -> w2 x post)) = ()
 
+// Semantics of "let x = p1 in p2 x"
 let prob_bind a b (w1:prob_wp a) (w2:a -> prob_wp b)
       (f: prob a w1) (g: (x:a -> prob b (w2 x))) : prob b (prob_wbind w1 w2) =
    admit()   
@@ -44,24 +79,33 @@ let prob_bind a b (w1:prob_wp a) (w2:a -> prob_wp b)
 // w1 is a more restrictive wp than w2
 let stronger #a (w1 w2:prob_wp a) = forall post. w1 post >=. w2 post
 
+// TODO: document or remove
 let strongerI #a (w1 w2:prob_wp a) :
   Lemma (requires forall post. w1 post >=. w2 post)
         (ensures w1 `stronger` w2) = ()
 
+// TODO: document or remove
 let prob_wp_stronger_eq #a (w1 w2:prob_wp a) :
     Lemma (requires w1 `stronger` w2 /\ w2 `stronger` w1)
     	  (ensures w1 == w2) = 
     assert (w1 == w2) by (apply_lemma (`prob_wp_eqI))
 
+// Weakening in the PROB effect: takes "f:prob a w1" and returns the same f with a different type "prob a w2",
+// assuming w2 is a weaker wp than w2
 let prob_subcomp a (w1 w2 : prob_wp a) (f:prob a w1) : 
                  Pure (prob a w2) (requires w1 `stronger` w2) (ensures (fun _ -> True)) =
   f
 
+// Semantics of if-then-else in a probabilistic program.
+// Since the condition is a fixed boolean, this is quite trivial.
 let ite_prob a (#w1 #w2 : prob_wp a) (f: prob a w1) (g: prob a w2) (b: bool) : Type =
   prob a (if b then w1 else w2)
 
+// Defining the PROB effect. Representation type is prob, and the
+// effect is defined using the various specifications of the semantics
+// that we defined above.
 total
-reflectable
+reflectable // Means we can create a probabilistic function from an explicitly given distribution. See coin below.
 //reifiable
 layered_effect { PROB : (a:Type) -> (wp:prob_wp a) -> Effect with 
   repr = prob;
@@ -71,139 +115,94 @@ layered_effect { PROB : (a:Type) -> (wp:prob_wp a) -> Effect with
   if_then_else = ite_prob
   }
 
+// TODO: document or remove
 assume val real_numbers_complete: unit -> Lemma(
   forall (p: real->bool) low high.
   p low ==> not (p high) ==> (forall x y. x >=. y ==> p x ==> p y) ==>
   (exists sup. (forall x. x <. sup ==> p x) /\ (forall x. x >. sup ==> not (p x))))
 
-// TODO: add requires, ensures, define
+
+// "largest p" is the largest real satisfying p
+// TODO: Add ensures to state that it returns the largest real
+// TODO: Add requires to enforce conditions of p that are needed for that real to exist
 assume val largest (p: pr -> Type0) : pr
 
+// "inf p" returns the infimum of {p x. x:a}
+// TODO: Add ensures/requires
 assume val inf (#a:Type) (p: a -> pr) : pr
 
+// Given PURE-wp wp, this returns the corresponding wp of the
+// probabilistic program.  I.e., if f:PURE wp, then "return f : PROB
+// (lift_pure_prob_wp wp)", roughly speaking.  Note that this is the
+// place where we use "largest" whose existence is (I think)
+// equivalent to the strong excluded middle, and which is the reason
+// why I favor the Hoare-approach instead.
 let lift_pure_prob_wp #a (wp:pure_wp a) : prob_wp a =
     (fun (post:prob_post a) -> largest (fun (p:pr) -> wp (fun x -> p <=. post x)))
 
+// Given pure program f, returns the corresponding probabilistic program "return f"
 let lift_pure_prob a (wp:pure_wp a) (f: eqtype_as_type unit -> PURE a wp) : 
    prob a (lift_pure_prob_wp wp) =
    assume False; // TODO
    point_distribution (f ())
 
+// Using lift_pure_prob, we tell F* how to transform a PURE effect
+// into a PROB effect.  Interestingly, without this, almost nothing
+// works. Even very simple functions fail without this (e.g., test0
+// below). This is a bit strange because I would expect that
+// prob_return would beused for giving meaning to that
+// function. Apparently not, so I wonder what prob_return is used for
+// by "effect".
 sub_effect PURE ~> PROB = lift_pure_prob
 
-(* let lift_div_prob a (wp:pure_wp a) (f: eqtype_as_type unit -> DIV a wp) : 
-   prob a (lift_pure_prob_wp wp) =
-   assume False; // TODO
-   //point_distribution (f ())
-   admit()
+// Does not work without the sub_effect above
+let test0 () : PROB bool (fun post -> zero) = true
 
-sub_effect DIV ~> PROB = lift_div_prob *)
-
+// A wrapper effect. ProbAny is PROB with trivial wp, i.e., "ProbAny
+// a" is always a valid type for a probabilistic program returning a.
 effect ProbAny (a:Type) = PROB a (fun post -> 0.0R)
 
+// A basic function for writing probabilistic programs. Returns a random bool.
+// The type characterizes this.
 let coin () : PROB bool (fun (post) -> (post true +. post false) /. two) =
   PROB?.reflect (uniform_distribution [true;false])
 
+// Testing if things work
 let test1 () : PROB bool (fun post -> (post true +. post false) /. two) = coin ()
 
+// Testing if things work
 let test2 () : ProbAny bool = coin ()
 
-let test3 x : PROB string (prob_wreturn x) 
-by (admit_all()) = assume False; x
+// XXXXXXXXXXXXXX
 
-let test4 () : PROB string (prob_wreturn "hello") = test3 "hello"
 
-let f (b:bool) : nat = if b then 0 else 1
-
-irreducible
-let bind_return #a #b (wp1:prob_wp a) (f:a->b) : 
+// Attempt at telling SMT how to simplify a bind-return combination.
+// But the SMTPat gives a warning, so probably the match is too
+// higher-order for SMT
+(* assume val bind_return (#a #b:Type) (wp1:prob_wp a) (f:a->b) : 
     Lemma(prob_wbind wp1 (fun x -> prob_wreturn (f x))
                       == (fun(post:prob_post b) -> wp1 (fun x -> post (f x))))
-  [SMTPat (prob_wbind wp1 (fun x -> prob_wreturn (f x)))]                                 
-        =
-  admit()				     
+  [SMTPat (prob_wbind wp1 (fun x -> prob_wreturn (f x)))] *)
 
-irreducible
-let return_bind #a #b (x:a) (wp2:a -> prob_wp b) : Lemma(prob_wbind (prob_wreturn x) wp2 == wp2 x) 
+// Attempt at telling SMT how to simplify return-bind combination.
+// Don't know if it works.
+assume val return_bind (#a #b:Type) (x:a) (wp2:a -> prob_wp b) : Lemma(prob_wbind (prob_wreturn x) wp2 == wp2 x) 
   [SMTPat (prob_wbind (prob_wreturn x) wp2)]
-  =
-  admit()
 
+// Testing if things work.
+// Interestingly, if we inline f here, this does not immediately typecheck any more (see test8b).
+let f (b:bool) : nat = if b then 0 else 1
 let test5 () : PROB nat (fun post -> (post 0 +. post 1) /. two) =
-  let c : bool = coin() in
-  f c
+  let c : bool = coin() in f c
 
-(*let prob_wbind_on #a #b (wp1:prob_wp a) (wp2:a -> prob_wp b) : 
-  Lemma(prob_wbind (on (prob_post a) #pr wp1) wp2 == prob_wbind wp1 wp2)
-  [SMTPat (prob_wbind (on _ wp1) wp2)]
-  = () *)
-
-(*
-open FStar.Tactics.Simplifier
-
-let equals_cong #t a b a' b' : Lemma
-  (requires a == a' /\ b == b')
-  (ensures (a == b) <==> (a' == b')) = ()
-
-let conversion (relation:term) = term -> Tac (term * (unit -> Tac unit))
-
-let dump_conversion (#relation:term) (msg:string) (c:conversion relation) : conversion relation = (fun t ->
-  print (msg ^ " " ^ term_to_string t); 
-  c t)
-
-let equals = (`(==))
-
-val id_conversion : conversion equals
-let id_conversion t =
-  (t, (fun () -> fail "id_conversion"))
-
-let iff = (`(<==>))
-
-val iff_id_conversion : conversion iff
-let iff_id_conversion t =
-  (t, (fun () -> fail "iff_id_conversion"))
-
-let cut_conversion #relation (c:conversion relation) (t:term) : Tac binder =
-  let (t', tac) = c t in
-  let thm = (`(`#relation) (`#t) (`#t')) in
-  
-
-let xxx (a:nat) : nat by (
-//  let (res, tac) = (dump_conversion "test" iff_id_conversion) (`(forall a. a)) in
-  let h = cut_conversion iff_id_conversion (`(forall a. a)) in
-  dump ""
-) = a+a
-*)
-
-(* assert (prob_wbind (on_domain (prob_post bool)
-              (fun (post) -> (post true +. post false) /. two))
-          (fun (x) -> prob_wreturn 0)
-          ==
-          prob_wbind (on_domain (prob_post bool)
-              (fun (post:prob_post bool) -> (post true +. post false) /. two))
-          (fun (x:bool) -> prob_wreturn 0)
-          )
-
-*)
-
-
-(* let x =
-assert (forall a b (x y:a). a `subtype_of` b ==> eq2 #a x y ==> eq2 #b x y) *)
-
-let test6 () : PROB nat (fun p -> p 0)
-=
+// Testing if things work.
+let test6 () : PROB nat (fun p -> p 0) =
   let c : bool = coin() in 0
 
-// let on_beta #a #b (f:_->_) x : Lemma(on a #b f x == f x) = ()
-
-(*let wrong #a (w1 w2: prob_wp a) : Lemma(w1 `stronger` w2) 
-[SMTPat (w1 `stronger` w2) ]
-= admit() *)
-
-let bool_simp1 () : Lemma((true = true) == true) = ()
-let bool_simp2 () : Lemma((false = true) == false) = ()
-let bool_simp3 () : Lemma(~true == False) = ()
-let bool_simp4 () : Lemma(~false == True) = ()
+//let bool_simp1 () : Lemma((true = true) == true) = ()
+//let bool_simp2 () : Lemma((false = true) == false) = ()
+//let bool_simp3 () : Lemma(~true == False) = ()
+//let bool_simp4 () : Lemma(~false == True) = ()
 
 
 assume val ifte : #(a:Type) -> (c:Type0) -> (t:a) -> (e:a) -> a
@@ -403,6 +402,14 @@ let simplifierAll () : Tac unit =
 
 let unfold_tac () : Tac unit = norm [delta_qualifier ["unfold"]]
 
+
+// TODO: remove admit_all
+// TODO: move down to the failing things
+let test3 x : PROB string (prob_wreturn x) by (admit_all()) = assume False; x
+
+let test4 () : PROB string (prob_wreturn "hello") = test3 "hello"
+
+
 let test8a c : PROB nat (fun post -> if c then post 0 else post 1)
    by (simplifier(); cases_bool (quote c); simplifierAll(); dump""; unfold_tac()) =
   if c then probr 0 else probr 1
@@ -440,16 +447,3 @@ let test10 () : PROB nat (fun p -> (p 0 +. p 1) /. two) =
   let c : bool = coin() in
   (if true then 0 else 1)
 
-
-(* 
-
-Question:
-
-what happens if we try to build the uniform distribution on sequences?
-
-Approach:
-
-let f n : Prob bool = uniform ()
-let g () : Prob (nat => bool) = "f on all points" --- Doesn't work, so probably we don't have a problem.
-
-*)
